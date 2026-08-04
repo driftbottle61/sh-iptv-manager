@@ -1,0 +1,56 @@
+system:
+  env: 'public'
+  addr: '0.0.0.0:8888'
+  db-type: 'mysql'
+  oss-type: 'minio'
+
+stb:
+  uid: '<IPTV账号>'
+  mac: '<机顶盒MAC>'
+  sn: '<机顶盒SN>'
+  ip: '<IPTV专网IP>'
+  type: '<机顶盒型号>'
+  auth_host: '<认证服务器:端口>'
+
+epg:
+  generator: 'Shanghai Telecom IPTV Spider'
+  source: 'Shanghai Telecom IPTV Spider'
+  xml_url: 'http://<服务器LAN地址>:8888/api/epg?daysAgo=5'
+  fetch_cron: '0 0 8,16,23 * * *'
+
+oss:
+  enable: false
+  upload_cron: '0 20 0,8,16 * * *'
+  endpoint: ''
+  use-ssl: false
+  bucket: ''
+  access-key: ''
+  secret-key: ''
+
+cache:
+  type: memory
+  prefix: 'CM'
+  memory_interval: 60
+  default_timeout: 240
+
+mysql:
+  path: '127.0.0.1'
+  config: 'parseTime=True'
+  db-name: 'iptv'
+  username: 'iptv'
+  password: '<数据库密码>'
+  max-idle-conns: 10
+  max-open-conns: 100
+  log-mode: 'error'
+  log-zap: false
+
+zap:
+  level: 'info'
+  format: 'console'
+  prefix: '[iptv-spider-sh]'
+  director: 'log'
+  link-name: 'latest_log'
+  show-line: false
+  encode-level: 'LowercaseColorLevelEncoder'
+  stacktrace-key: 'stacktrace'
+  log-in-console: false

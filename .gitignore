@@ -1,0 +1,6 @@
+config.yaml
+*.log
+log/
+latest_log
+*.bak*
+*.pcap
