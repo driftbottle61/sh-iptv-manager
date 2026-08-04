@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kataras/iris/v12"
@@ -32,6 +33,18 @@ const (
 
 var tvgIDPattern = regexp.MustCompile(`tvg-id="([^"]+)"`)
 var tvgNamePattern = regexp.MustCompile(`tvg-name="([^"]+)"`)
+
+type tvodCacheEntry struct {
+	playURL   string
+	expiresAt time.Time
+}
+
+var tvodCache = struct {
+	sync.RWMutex
+	entries map[string]tvodCacheEntry
+}{entries: make(map[string]tvodCacheEntry)}
+
+var tvodHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
 type rtspResponse struct {
 	status  int
@@ -198,6 +211,17 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 	var program model.EPGDetails
 	ms := start.UnixMilli()
 	if err := global.DB.Where("comm_name = ? AND start_time <= ? AND end_time > ?", info.CommName, ms, ms).Order("start_time DESC").First(&program).Error; err != nil { return "", err }
+	cacheKey := mixNo + ":" + program.ID
+	now := time.Now()
+	isCurrent := program.EndTime/1000 > now.Unix()
+	if !isCurrent {
+		tvodCache.RLock()
+		cached, ok := tvodCache.entries[cacheKey]
+		tvodCache.RUnlock()
+		if ok && now.Before(cached.expiresAt) {
+			return cached.playURL, nil
+		}
+	}
 	var authInfo model.AuthInfo
 	if err := global.DB.Order("updated_at DESC").First(&authInfo).Error; err != nil { return "", err }
 	endpoint := strings.TrimRight(authInfo.EPGHostUrl, "/") + "/function/ajax/epg7getChannelByAjax.jsp"
@@ -213,10 +237,15 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode())); if err != nil { return "", err }
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name:"JSESSIONID", Value:authInfo.JSESSIONID})
-	resp, err := (&http.Client{Timeout:15*time.Second}).Do(req); if err != nil { return "", err }; defer resp.Body.Close()
+	resp, err := tvodHTTPClient.Do(req); if err != nil { return "", err }; defer resp.Body.Close()
 	var out struct { Status string `json:"status"`; Data struct { PlayURL string `json:"playURL"` } `json:"data"` }
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil { return "", err }
 	if out.Status != "1" || out.Data.PlayURL == "" { return "", errors.New("TVOD URL not issued") }
+	if !isCurrent {
+		tvodCache.Lock()
+		tvodCache.entries[cacheKey] = tvodCacheEntry{playURL: out.Data.PlayURL, expiresAt: now.Add(10 * time.Minute)}
+		tvodCache.Unlock()
+	}
 	return out.Data.PlayURL, nil
 }
 
