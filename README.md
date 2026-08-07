@@ -17,6 +17,23 @@
 ## 安装使用
 自行探索
 
+## 可安装发行版
+
+面向 Debian/Ubuntu 的交互式安装包在
+[`iptv-spider-installer/`](iptv-spider-installer/)；它不包含任何账号、机顶盒认证信息或现网配置。
+
+下载 `releases/sh-iptv-spider-installer-1.0.0-linux-amd64.tar.gz` 后执行：
+
+```bash
+tar -xzf sh-iptv-spider-installer-1.0.0-linux-amd64.tar.gz
+cd sh-iptv-spider-installer
+sudo ./install.sh
+```
+
+安装程序会交互填写抓取和回放配置，并内置频道 Logo。发行包 SHA256：
+`a8be0bb41ef8d427af1d1bf28f4e2a95257ae3ce5529c2a7a9f91d50c12c8777`。
+详细说明见 [安装包中文文档](iptv-spider-installer/README_CN.md)。
+
 ## 其他说明
 1. 程序使用Go语言编写，编译后可在支持的系统上运行。
 2. 程序会将抓取到的频道列表和流媒体地址存储到 mysql 数据库中，数据库结构请参考源码中的建表语句。
