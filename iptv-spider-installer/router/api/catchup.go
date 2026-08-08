@@ -226,6 +226,7 @@ func streamCatchup(ctx iris.Context) {
 		}
 		return
 	}
+	ctx.Header("Cache-Control", "no-store")
 	ctx.Redirect(playURL, iris.StatusFound)
 }
 
@@ -340,26 +341,25 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 	if err := global.DB.Where("comm_name = ? AND start_time <= ? AND end_time > ?", info.CommName, ms, ms).Order("start_time DESC").First(&program).Error; err != nil {
 		return "", err
 	}
-	cacheKey := mixNo + ":" + program.ID
-	now := time.Now()
-	isCurrent := program.EndTime/1000 > now.Unix()
-	if !isCurrent {
-		tvodCache.RLock()
-		cached, ok := tvodCache.entries[cacheKey]
-		tvodCache.RUnlock()
-		if ok && now.Before(cached.expiresAt) {
-			return cached.playURL, nil
-		}
+	programStart := program.StartTime / 1000
+	programEnd := program.EndTime / 1000
+	requestedStart := start.Unix()
+	if requestedStart < programStart {
+		requestedStart = programStart
 	}
-	endTime := program.EndTime / 1000
-	// The current EPG item has a future end time. Ask TVOD only for the part
-	// that has already aired; submitting a future end makes the provider reject
-	// the request even though historical programmes work normally.
-	nowSeconds := time.Now().Unix()
-	if endTime > nowSeconds {
-		endTime = nowSeconds
+	requestedEnd := start.Add(duration).Unix()
+	if requestedEnd > programEnd {
+		requestedEnd = programEnd
 	}
-	form := url.Values{"action": {"getTvodPlayUrl"}, "channelID": {info.ChID}, "playbillID": {program.ID}, "startTime": {strconv.FormatInt(program.StartTime/1000, 10)}, "endTime": {strconv.FormatInt(endTime, 10)}}
+	if requestedEnd > time.Now().Unix() {
+		requestedEnd = time.Now().Unix()
+	}
+	if requestedEnd <= requestedStart {
+		return "", errors.New("TVOD request range is empty")
+	}
+	// Historical TVOD URLs are signed by the provider. Do not reuse them:
+	// a cached URL can return 401 while a freshly issued URL is valid.
+	form := url.Values{"action": {"getTvodPlayUrl"}, "channelID": {info.ChID}, "playbillID": {program.ID}, "startTime": {strconv.FormatInt(requestedStart, 10)}, "endTime": {strconv.FormatInt(requestedEnd, 10)}}
 	for attempt := 0; attempt < 2; attempt++ {
 		var authInfo model.AuthInfo
 		if err := global.DB.Order("updated_at DESC").First(&authInfo).Error; err != nil {
@@ -411,11 +411,6 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 				}
 			}
 			return "", errors.New("TVOD URL not issued")
-		}
-		if !isCurrent {
-			tvodCache.Lock()
-			tvodCache.entries[cacheKey] = tvodCacheEntry{playURL: out.Data.PlayURL, expiresAt: now.Add(10 * time.Minute)}
-			tvodCache.Unlock()
 		}
 		return out.Data.PlayURL, nil
 	}
