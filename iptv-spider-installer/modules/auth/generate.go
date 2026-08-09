@@ -18,6 +18,10 @@ import (
 
 const timeFormat = carbon.ShortDateTimeLayout + " -0700"
 
+const directReferenceM3uPath = "assets/channel-reference.m3u"
+
+const localLogoBaseURL = "http://192.168.100.90:8888/iptvlogos/"
+
 func GenerateM3u8(udpxy, scheme, xteve, all string) []byte {
 	m3uWriter := m3u.NewWriter()
 	m3uWriter.WriteHeaderWithInfo(global.CONFIG.Epg.XmlUrl)
@@ -51,10 +55,10 @@ func GenerateM3u8(udpxy, scheme, xteve, all string) []byte {
 	return m3uWriter.Bytes()
 }
 
-func GenerateDirectCatchupM3u8(udpxy, epgURL, catchupBase, logoBase string, days int) []byte {
+func GenerateDirectCatchupM3u8(udpxy, epgURL, catchupBase string, days int) []byte {
 	m3uWriter := m3u.NewWriter()
 	m3uWriter.WriteHeaderWithInfo(epgURL)
-	referenceMappings := fetchDirectReferenceMappings(logoBase)
+	referenceMappings := fetchDirectReferenceMappings()
 	var channelInfoList []model.ChannelInfo
 	global.DB.Order("mix_no asc").Find(&channelInfoList)
 	for _, info := range model.RemoveDuplicateChannelInfo(channelInfoList) {
@@ -66,7 +70,7 @@ func GenerateDirectCatchupM3u8(udpxy, epgURL, catchupBase, logoBase string, days
 		mapping := model.M3u8Mapping{}
 		global.DB.Where("comm_name = ?", info.CommName).Find(&mapping)
 		if reference, ok := referenceMappings[info.MixNo]; ok {
-			mapping.Logo = reference.Logo
+			mapping.Logo = localLogoURL(reference.Logo)
 			mapping.CustomGroups = reference.Group
 		}
 		if mapping.AutoGroups == "购物" || mapping.CustomGroups == "购物" {
@@ -82,11 +86,11 @@ type directReferenceMapping struct {
 	Group string
 }
 
-// The packaged reference list keeps manual groups and Logo filenames available
-// without depending on the original logo host at runtime.
-func fetchDirectReferenceMappings(logoBase string) map[string]directReferenceMapping {
+// The reference list is the maintained source of channel logos and manual groups.
+// Fail open so the direct list remains available if the logo host is temporarily down.
+func fetchDirectReferenceMappings() map[string]directReferenceMapping {
 	mappings := make(map[string]directReferenceMapping)
-	file, err := os.Open("assets/channel-reference.m3u")
+	file, err := os.Open(directReferenceM3uPath)
 	if err != nil {
 		return mappings
 	}
@@ -102,16 +106,27 @@ func fetchDirectReferenceMappings(logoBase string) map[string]directReferenceMap
 		if id == "" {
 			continue
 		}
-		logo := directM3uAttribute(line, "tvg-logo")
-		if parsed, err := url.Parse(logo); err == nil && parsed.Path != "" {
-			logo = strings.TrimRight(logoBase, "/") + "/" + path.Base(parsed.Path)
-		}
 		mappings[id] = directReferenceMapping{
-			Logo:  logo,
+			Logo:  directM3uAttribute(line, "tvg-logo"),
 			Group: directM3uAttribute(line, "group-title"),
 		}
 	}
 	return mappings
+}
+
+func localLogoURL(value string) string {
+	if value == "" {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err == nil && parsed.Path != "" {
+		value = parsed.Path
+	}
+	name := path.Base(value)
+	if name == "." || name == "/" || name == "" {
+		return ""
+	}
+	return localLogoBaseURL + url.PathEscape(name)
 }
 
 func directM3uAttribute(line, key string) string {

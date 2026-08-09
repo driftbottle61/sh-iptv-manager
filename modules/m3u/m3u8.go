@@ -35,6 +35,20 @@ func (m *Writer) Write(uri string, info model.ChannelInfo, ext model.M3u8Mapping
 	m.buf.WriteString(fmt.Sprintf(",%s\n%s", info.Name, uri))
 }
 
+func (m *Writer) WriteCatchup(uri string, info model.ChannelInfo, ext model.M3u8Mapping, source string, days int) {
+	var groups = ext.CustomGroups
+	if groups == "" {
+		groups = ext.AutoGroups
+	}
+	if days < 1 {
+		days = 1
+	}
+	m.buf.WriteString("\n")
+	m.buf.WriteString(fmt.Sprintf(`#EXTINF:-1 tvg-id="%s" tvg-name="%s" tvg-logo="%s"`, info.MixNo, info.CommName, ext.Logo))
+	m.buf.WriteString(fmt.Sprintf(` group-title="%s" catchup="default" catchup-days="%d" catchup-source="%s/%s/{utc}/{duration}.ts"`, groups, days, source, info.MixNo))
+	m.buf.WriteString(fmt.Sprintf(",%s\n%s", info.Name, uri))
+}
+
 func (m *Writer) Bytes() []byte {
 	return m.buf.Bytes()
 }

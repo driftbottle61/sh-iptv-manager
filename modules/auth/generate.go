@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bufio"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -10,9 +11,16 @@ import (
 	"iptv-spider-sh/modules/m3u"
 	"iptv-spider-sh/utils"
 	"net/url"
+	"os"
+	"path"
+	"strings"
 )
 
 const timeFormat = carbon.ShortDateTimeLayout + " -0700"
+
+const directReferenceM3uPath = "assets/channel-reference.m3u"
+
+const localLogoBaseURL = "http://192.168.100.90:8888/iptvlogos/"
 
 func GenerateM3u8(udpxy, scheme, xteve, all string) []byte {
 	m3uWriter := m3u.NewWriter()
@@ -45,6 +53,94 @@ func GenerateM3u8(udpxy, scheme, xteve, all string) []byte {
 		m3uWriter.Write(uri, info, m3u8Mapping)
 	}
 	return m3uWriter.Bytes()
+}
+
+func GenerateDirectCatchupM3u8(udpxy, epgURL, catchupBase string, days int) []byte {
+	m3uWriter := m3u.NewWriter()
+	m3uWriter.WriteHeaderWithInfo(epgURL)
+	referenceMappings := fetchDirectReferenceMappings()
+	var channelInfoList []model.ChannelInfo
+	global.DB.Order("mix_no asc").Find(&channelInfoList)
+	for _, info := range model.RemoveDuplicateChannelInfo(channelInfoList) {
+		if !info.IsShow {
+			continue
+		}
+		var channel model.Channel
+		global.DB.Where("user_channel_id = ?", info.MixNo).First(&channel)
+		mapping := model.M3u8Mapping{}
+		global.DB.Where("comm_name = ?", info.CommName).Find(&mapping)
+		if reference, ok := referenceMappings[info.MixNo]; ok {
+			mapping.Logo = localLogoURL(reference.Logo)
+			mapping.CustomGroups = reference.Group
+		}
+		if mapping.AutoGroups == "购物" || mapping.CustomGroups == "购物" {
+			continue
+		}
+		m3uWriter.WriteCatchup(assemblyUrl(udpxy, "", "", channel.ChannelURL), info, mapping, catchupBase, days)
+	}
+	return m3uWriter.Bytes()
+}
+
+type directReferenceMapping struct {
+	Logo  string
+	Group string
+}
+
+// The reference list is the maintained source of channel logos and manual groups.
+// Fail open so the direct list remains available if the logo host is temporarily down.
+func fetchDirectReferenceMappings() map[string]directReferenceMapping {
+	mappings := make(map[string]directReferenceMapping)
+	file, err := os.Open(directReferenceM3uPath)
+	if err != nil {
+		return mappings
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "#EXTINF:") {
+			continue
+		}
+		id := directM3uAttribute(line, "tvg-id")
+		if id == "" {
+			continue
+		}
+		mappings[id] = directReferenceMapping{
+			Logo:  directM3uAttribute(line, "tvg-logo"),
+			Group: directM3uAttribute(line, "group-title"),
+		}
+	}
+	return mappings
+}
+
+func localLogoURL(value string) string {
+	if value == "" {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err == nil && parsed.Path != "" {
+		value = parsed.Path
+	}
+	name := path.Base(value)
+	if name == "." || name == "/" || name == "" {
+		return ""
+	}
+	return localLogoBaseURL + url.PathEscape(name)
+}
+
+func directM3uAttribute(line, key string) string {
+	prefix := key + `="`
+	start := strings.Index(line, prefix)
+	if start < 0 {
+		return ""
+	}
+	value := line[start+len(prefix):]
+	end := strings.Index(value, `"`)
+	if end < 0 {
+		return ""
+	}
+	return value[:end]
 }
 
 func GenerateTimeShiftM3u8() []byte {

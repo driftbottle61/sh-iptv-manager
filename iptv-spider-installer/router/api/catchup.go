@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,10 +29,92 @@ const (
 	catchupMaxDays     = 7
 	catchupMaxDuration = 8 * time.Hour
 	catchupUserAgent   = "IPTVSpiderCatchup/1.0"
+	tiviMateSourceURL  = "http://192.168.100.51:34400/m3u/xteve.m3u"
 )
 
 var tvgIDPattern = regexp.MustCompile(`tvg-id="([^"]+)"`)
 var tvgNamePattern = regexp.MustCompile(`tvg-name="([^"]+)"`)
+var tvgLogoPattern = regexp.MustCompile(`tvg-logo="[^"]*"`)
+var groupTitlePattern = regexp.MustCompile(`group-title="[^"]*"`)
+
+type referenceMapping struct {
+	logo  string
+	group string
+}
+
+func loadReferenceMappings() map[string]referenceMapping {
+	mappings := make(map[string]referenceMapping)
+	data, err := os.ReadFile("assets/channel-reference.m3u")
+	if err != nil {
+		return mappings
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		if !strings.HasPrefix(line, "#EXTINF:") {
+			continue
+		}
+		id := tvgIDPattern.FindStringSubmatch(line)
+		logo := tvgLogoPattern.FindStringSubmatch(line)
+		group := groupTitlePattern.FindStringSubmatch(line)
+		comma := strings.LastIndex(line, ",")
+		name := ""
+		if comma >= 0 {
+			name = normalizeChannelName(line[comma+1:])
+		}
+		if len(id) == 2 && len(logo) == 1 && len(group) == 1 {
+			logoValue := strings.TrimSuffix(strings.TrimPrefix(logo[0], `tvg-logo="`), `"`)
+			if parsed, err := url.Parse(logoValue); err == nil && parsed.Path != "" {
+				logoValue = parsed.Path
+			}
+			if slash := strings.LastIndex(logoValue, "/"); slash >= 0 {
+				logoValue = logoValue[slash+1:]
+			}
+			groupValue := strings.TrimSuffix(strings.TrimPrefix(group[0], `group-title="`), `"`)
+			mapping := referenceMapping{
+				logo:  logoValue,
+				group: groupValue,
+			}
+			mappings["id:"+id[1]] = mapping
+			if name != "" {
+				mappings["name:"+name] = mapping
+			}
+		}
+	}
+	return mappings
+}
+
+func applyReferenceMapping(line string, mappings map[string]referenceMapping) string {
+	id := tvgIDPattern.FindStringSubmatch(line)
+	if len(id) != 2 {
+		return line
+	}
+	mapping, ok := mappings["id:"+id[1]]
+	if !ok {
+		if name := tvgNamePattern.FindStringSubmatch(line); len(name) == 2 {
+			mapping, ok = mappings["name:"+normalizeChannelName(name[1])]
+		}
+	}
+	if !ok {
+		if comma := strings.LastIndex(line, ","); comma >= 0 {
+			mapping, ok = mappings["name:"+normalizeChannelName(line[comma+1:])]
+		}
+	}
+	if !ok {
+		return line
+	}
+	logoURL := ""
+	if mapping.logo != "" {
+		logoURL = "http://192.168.100.90:8888/iptvlogos/" + url.PathEscape(mapping.logo)
+	}
+	if tvgLogoPattern.MatchString(line) {
+		line = tvgLogoPattern.ReplaceAllString(line, `tvg-logo="`+logoURL+`"`)
+	} else {
+		line = strings.Replace(line, "#EXTINF:", "#EXTINF:", 1)
+	}
+	if groupTitlePattern.MatchString(line) {
+		line = groupTitlePattern.ReplaceAllString(line, `group-title="`+mapping.group+`"`)
+	}
+	return line
+}
 
 type tvodCacheEntry struct {
 	playURL   string
@@ -67,16 +150,12 @@ type rtspClient struct {
 	session string
 }
 
-func generateCatchupM3u(ctx iris.Context) {
+func GenerateCatchupM3u(ctx iris.Context) {
 	generateCatchupM3uWithDefaults(ctx, "", catchupMaxDays)
 }
 
 func GenerateTiviMateM3u(ctx iris.Context) {
-	days := global.CONFIG.Catchup.Days
-	if days < 1 || days > catchupMaxDays {
-		days = 5
-	}
-	generateCatchupM3uWithDefaults(ctx, global.CONFIG.Catchup.SourceM3u, days)
+	generateCatchupM3uWithDefaults(ctx, tiviMateSourceURL, 5)
 }
 
 func generateCatchupM3uWithDefaults(ctx iris.Context, defaultSource string, defaultDays int) {
@@ -115,7 +194,14 @@ func generateCatchupM3uWithDefaults(ctx iris.Context, defaultSource string, defa
 	if scheme == "" {
 		scheme = "http"
 	}
-	baseURL := fmt.Sprintf("%s://%s/api/catchup/stream", scheme, ctx.Request().Host)
+	host := ctx.GetHeader("X-Forwarded-Host")
+	if host == "" {
+		host = ctx.Request().Host
+	}
+	if host == "" || strings.HasPrefix(host, "127.0.0.1:") || host == "127.0.0.1" || strings.HasPrefix(host, "[::1]:") || host == "::1" {
+		host = "192.168.100.90:8888"
+	}
+	baseURL := fmt.Sprintf("%s://%s/api/catchup/stream", scheme, host)
 	result := injectCatchupAttributes(string(playlist), enabled, channelsByName, baseURL, days)
 
 	ctx.Header("Content-Disposition", "attachment; filename=iptv-catchup.m3u")
@@ -153,8 +239,14 @@ func loadSourcePlaylist(ctx iris.Context, defaultSource string) ([]byte, error) 
 
 func injectCatchupAttributes(playlist string, enabled map[string]bool, channelsByName map[string]string, baseURL string, days int) string {
 	lines := strings.Split(strings.ReplaceAll(playlist, "\r\n", "\n"), "\n")
+	referenceMappings := loadReferenceMappings()
 	for index, line := range lines {
-		if !strings.HasPrefix(line, "#EXTINF:") || strings.Contains(line, "catchup=") {
+		if !strings.HasPrefix(line, "#EXTINF:") {
+			continue
+		}
+		line = applyReferenceMapping(line, referenceMappings)
+		if strings.Contains(line, "catchup=") {
+			lines[index] = line
 			continue
 		}
 		channelID := ""
@@ -211,13 +303,21 @@ func streamCatchup(ctx iris.Context) {
 
 	playURL, err := getTvodPlayURL(ctx.Request().Context(), channelID, start, duration)
 	if err != nil {
+		global.LOG.Warn(fmt.Sprintf("catchup upstream failed channel=%s error=%s", channelID, err.Error()))
 		stopRequest(ctx, iris.StatusNotFound, errors.New("catchup channel not found"))
 		return
 	}
-	// Clients behind the 192.168.88.0/24 router are source-NATed to the LAN
-	// gateway. They cannot follow the provider redirect into the IPTV network,
-	// so relay those streams through this dual-homed service.
-	if shouldRelayCatchup(ctx.RemoteAddr()) {
+	// 默认「直连 CDN」：上海电信回放 HLS 媒体位于公网 CDN（非专网私地址），
+	// Tivimate 可直连，速度约为内置中继的 2.6 倍（实测 3.8 vs 1.47 MB/s），
+	// 并由播放器原生按需拉分片，不再被服务端单连接串行中继拖慢。
+	// 仅当显式设置 CATCHUP_MODE=relay 时才回退到内置中继
+	//（适用于确实无法直连公网 CDN 的网络环境，无需重新编译即可回退）。
+	remoteHost := ctx.RemoteAddr()
+	if host, _, err := net.SplitHostPort(remoteHost); err == nil {
+		remoteHost = host
+	}
+	useRelay := strings.EqualFold(os.Getenv("CATCHUP_MODE"), "relay") || strings.HasPrefix(remoteHost, "192.168.88.")
+	if useRelay {
 		ctx.ContentType("video/mp2t")
 		ctx.Header("Cache-Control", "no-store")
 		ctx.Header("X-Accel-Buffering", "no")
@@ -228,19 +328,6 @@ func streamCatchup(ctx iris.Context) {
 	}
 	ctx.Header("Cache-Control", "no-store")
 	ctx.Redirect(playURL, iris.StatusFound)
-}
-
-func shouldRelayCatchup(remoteAddr string) bool {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		host = remoteAddr
-	}
-	for _, allowed := range global.CONFIG.Catchup.RelayClients {
-		if host == strings.TrimSpace(allowed) {
-			return true
-		}
-	}
-	return false
 }
 
 func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) error {
@@ -359,6 +446,8 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 	}
 	// Historical TVOD URLs are signed by the provider. Do not reuse them:
 	// a cached URL can return 401 while a freshly issued URL is valid.
+	// Request only the range selected by TiviMate, clipped to the EPG item
+	// and to the part that has already aired.
 	form := url.Values{"action": {"getTvodPlayUrl"}, "channelID": {info.ChID}, "playbillID": {program.ID}, "startTime": {strconv.FormatInt(requestedStart, 10)}, "endTime": {strconv.FormatInt(requestedEnd, 10)}}
 	for attempt := 0; attempt < 2; attempt++ {
 		var authInfo model.AuthInfo
@@ -405,12 +494,10 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 			return "", err
 		}
 		if out.Status != "1" || out.Data.PlayURL == "" {
-			if attempt == 0 {
-				if err := refreshTvodAuth(); err == nil {
-					continue
-				}
-			}
-			return "", errors.New("TVOD URL not issued")
+			// status=0 is a valid provider response meaning that this playbill
+			// has no archive. Re-authentication cannot create missing media.
+			global.LOG.Warn(fmt.Sprintf("TVOD URL unavailable channel=%s playbill=%s provider_status=%s", info.ChID, program.ID, out.Status))
+			return "", errors.New("TVOD program unavailable")
 		}
 		return out.Data.PlayURL, nil
 	}

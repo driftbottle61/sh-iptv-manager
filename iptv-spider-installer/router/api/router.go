@@ -51,7 +51,7 @@ func InitApiRouters(rg iris.Party) {
 
 	rg.Get("/epg", generateXmlTv)
 
-	rg.Get("/catchup/m3u", generateCatchupM3u)
+	rg.Get("/catchup/m3u", GenerateCatchupM3u)
 
 	rg.Get("/catchup/stream/{channel:string}", streamCatchup)
 
@@ -61,18 +61,14 @@ func InitApiRouters(rg iris.Party) {
 }
 
 func GenerateDirectTiviMateM3u(ctx iris.Context) {
-	udpxy := ctx.URLParamDefault("udpxy", global.CONFIG.Catchup.Udpxy)
-	days := global.CONFIG.Catchup.Days
-	if days < 1 || days > 7 {
-		days = 5
-	}
+	udpxy := ctx.URLParamDefault("udpxy", "192.168.100.51:4022")
+	days := 5
 	scheme := ctx.GetHeader("X-Forwarded-Proto")
 	if scheme == "" {
 		scheme = "http"
 	}
 	base := fmt.Sprintf("%s://%s/api/catchup/stream", scheme, ctx.Request().Host)
-	logoBase := fmt.Sprintf("%s://%s/iptvlogos", scheme, ctx.Request().Host)
-	data := auth.GenerateDirectCatchupM3u8(udpxy, global.CONFIG.Epg.XmlUrl, base, logoBase, days)
+	data := auth.GenerateDirectCatchupM3u8(udpxy, global.CONFIG.Epg.XmlUrl, base, days)
 	ctx.ContentType("audio/x-mpegurl")
 	ctx.Header("Content-Disposition", "attachment; filename=iptv-direct-catchup.m3u")
 	_, _ = ctx.Write(data)

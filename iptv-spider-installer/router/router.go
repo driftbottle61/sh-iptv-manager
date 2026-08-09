@@ -8,7 +8,7 @@ import (
 func InitRouters(app *iris.Application) {
 	registerMacros(app)
 	app.HandleDir("/iptvlogos", "./assets/logos")
-	app.Get("/tv.m3u", api.GenerateTiviMateM3u)
+	app.Get("/tv.m3u", api.GenerateDirectTiviMateM3u)
 	app.Get("/tv-direct.m3u", api.GenerateDirectTiviMateM3u)
 	// 中间件注册
 	//app.UseRouter(middleware.Cors())
