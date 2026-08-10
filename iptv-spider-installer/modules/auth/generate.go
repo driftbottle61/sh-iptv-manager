@@ -20,7 +20,7 @@ const timeFormat = carbon.ShortDateTimeLayout + " -0700"
 
 const directReferenceM3uPath = "assets/channel-reference.m3u"
 
-const localLogoBaseURL = "http://192.168.100.90:8888/iptvlogos/"
+const localLogoPath = "/iptvlogos/"
 
 func GenerateM3u8(udpxy, scheme, xteve, all string) []byte {
 	m3uWriter := m3u.NewWriter()
@@ -126,7 +126,16 @@ func localLogoURL(value string) string {
 	if name == "." || name == "/" || name == "" {
 		return ""
 	}
-	return localLogoBaseURL + url.PathEscape(name)
+	return localLogoBaseURL() + url.PathEscape(name)
+}
+
+func localLogoBaseURL() string {
+	if global.CONFIG != nil {
+		if parsed, err := url.Parse(global.CONFIG.Epg.XmlUrl); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+			return parsed.Scheme + "://" + parsed.Host + localLogoPath
+		}
+	}
+	return "http://127.0.0.1:8888" + localLogoPath
 }
 
 func directM3uAttribute(line, key string) string {

@@ -82,7 +82,7 @@ func loadReferenceMappings() map[string]referenceMapping {
 	return mappings
 }
 
-func applyReferenceMapping(line string, mappings map[string]referenceMapping) string {
+func applyReferenceMapping(line string, mappings map[string]referenceMapping, logoBase string) string {
 	id := tvgIDPattern.FindStringSubmatch(line)
 	if len(id) != 2 {
 		return line
@@ -103,7 +103,7 @@ func applyReferenceMapping(line string, mappings map[string]referenceMapping) st
 	}
 	logoURL := ""
 	if mapping.logo != "" {
-		logoURL = "http://192.168.100.90:8888/iptvlogos/" + url.PathEscape(mapping.logo)
+		logoURL = logoBase + url.PathEscape(mapping.logo)
 	}
 	if tvgLogoPattern.MatchString(line) {
 		line = tvgLogoPattern.ReplaceAllString(line, `tvg-logo="`+logoURL+`"`)
@@ -114,6 +114,24 @@ func applyReferenceMapping(line string, mappings map[string]referenceMapping) st
 		line = groupTitlePattern.ReplaceAllString(line, `group-title="`+mapping.group+`"`)
 	}
 	return line
+}
+
+func logoBaseURL(ctx iris.Context) string {
+	scheme := ctx.GetHeader("X-Forwarded-Proto")
+	if scheme == "" {
+		scheme = "http"
+	}
+	host := ctx.GetHeader("X-Forwarded-Host")
+	if host == "" {
+		host = ctx.Request().Host
+	}
+	if host == "" || strings.HasPrefix(host, "127.0.0.1") || host == "::1" || strings.HasPrefix(host, "[::1]") {
+		if parsed, err := url.Parse(global.CONFIG.Epg.XmlUrl); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+			return parsed.Scheme + "://" + parsed.Host + "/iptvlogos/"
+		}
+		host = "127.0.0.1:8888"
+	}
+	return scheme + "://" + host + "/iptvlogos/"
 }
 
 type tvodCacheEntry struct {
@@ -202,7 +220,7 @@ func generateCatchupM3uWithDefaults(ctx iris.Context, defaultSource string, defa
 		host = "192.168.100.90:8888"
 	}
 	baseURL := fmt.Sprintf("%s://%s/api/catchup/stream", scheme, host)
-	result := injectCatchupAttributes(string(playlist), enabled, channelsByName, baseURL, days)
+	result := injectCatchupAttributes(string(playlist), enabled, channelsByName, baseURL, logoBaseURL(ctx), days)
 
 	ctx.Header("Content-Disposition", "attachment; filename=iptv-catchup.m3u")
 	ctx.ContentType("audio/x-mpegurl")
@@ -237,14 +255,14 @@ func loadSourcePlaylist(ctx iris.Context, defaultSource string) ([]byte, error) 
 	return io.ReadAll(io.LimitReader(response.Body, 16<<20))
 }
 
-func injectCatchupAttributes(playlist string, enabled map[string]bool, channelsByName map[string]string, baseURL string, days int) string {
+func injectCatchupAttributes(playlist string, enabled map[string]bool, channelsByName map[string]string, baseURL, logoBase string, days int) string {
 	lines := strings.Split(strings.ReplaceAll(playlist, "\r\n", "\n"), "\n")
 	referenceMappings := loadReferenceMappings()
 	for index, line := range lines {
 		if !strings.HasPrefix(line, "#EXTINF:") {
 			continue
 		}
-		line = applyReferenceMapping(line, referenceMappings)
+		line = applyReferenceMapping(line, referenceMappings, logoBase)
 		if strings.Contains(line, "catchup=") {
 			lines[index] = line
 			continue

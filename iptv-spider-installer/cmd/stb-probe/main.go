@@ -29,6 +29,8 @@ type capture struct {
 	keep                                    bool
 }
 
+const spiderAuthHost = "222.68.208.73:7001"
+
 func main() {
 	c := capture{}
 	flag.StringVar(&c.router, "router", "192.168.100.1", "RouterOS address")
@@ -154,8 +156,7 @@ func parsePCAP(path string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	v := map[string]string{}
-	var authCandidate string
+	v := map[string]string{"auth_host": spiderAuthHost}
 	privateByMAC := map[string]string{}
 	var payloads bytes.Buffer
 	for {
@@ -185,12 +186,6 @@ func parsePCAP(path string) (map[string]string, error) {
 					if v["plane_b_ip"] == "" && strings.HasPrefix(i.SrcIP.String(), "30.") {
 						v["plane_b_ip"] = i.SrcIP.String()
 					}
-					if dst == 7001 && authCandidate == "" {
-						authCandidate = net.JoinHostPort(i.DstIP.String(), fmt.Sprint(dst))
-					}
-					if dst == 7001 && bytes.Contains(t.Payload, []byte("InterfaceName=GetSPubKey")) {
-						v["auth_host"] = net.JoinHostPort(i.DstIP.String(), "7001")
-					}
 				}
 			}
 		}
@@ -201,9 +196,6 @@ func parsePCAP(path string) (map[string]string, error) {
 	extract(v, payloads.String())
 	for _, body := range findGzipStreams(payloads.Bytes()) {
 		extract(v, string(body))
-	}
-	if v["auth_host"] == "" {
-		v["auth_host"] = authCandidate
 	}
 	if v["mac"] != "" {
 		v["plane_a_ip"] = privateByMAC[strings.ToLower(v["mac"])]

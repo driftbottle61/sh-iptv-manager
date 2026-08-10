@@ -8,6 +8,7 @@ fi
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DEFAULT_DIR=/opt/sh-iptv-spider
+FIXED_AUTH_HOST='222.68.208.73:7001'
 
 ask() {
   local prompt=$1 default=${2-} value
@@ -48,7 +49,7 @@ collect_stb_manual() {
   STB_MAC=$(ask '机顶盒 MAC 地址')
   STB_SN=$(ask '机顶盒 SN 序列号')
   STB_TYPE=$(ask '机顶盒型号')
-  AUTH_HOST=$(ask 'IPTV 认证服务器（地址:端口）' '222.68.208.73:7001')
+  AUTH_HOST="$FIXED_AUTH_HOST"
   STB_PLANE_A_IP=$(ask '机顶盒 A 面/LAN 地址（可留空）')
   STB_IP=$(ask '机顶盒 B 面/IPTV 专网地址')
   STB_PLANE_B_GATEWAY=$(ask '机顶盒 B 面网关（可留空）')
