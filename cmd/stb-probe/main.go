@@ -46,21 +46,21 @@ func main() {
 	if c.file != "" {
 		values, err := parsePCAP(c.file)
 		if err != nil {
-			fatal("could not parse pcap: %v", err)
+			fatal("无法解析抓包文件：%v", err)
 		}
 		printYAML(values)
 		return
 	}
 
 	if c.seconds < 10 || c.seconds > 600 {
-		fatal("-duration must be between 10 and 600 seconds")
+		fatal("抓包时长必须在 10 到 600 秒之间")
 	}
 	if c.vlan < 0 || c.vlan > 4094 || (c.mac != "" && !validMAC(c.mac)) || (c.ip != "" && net.ParseIP(c.ip) == nil) {
-		fatal("invalid -vlan, -mac, or -ip")
+		fatal("VLAN、MAC 或 IP 参数无效")
 	}
 	c.key = expandHome(c.key)
 	if _, err := os.Stat(c.key); err != nil {
-		fatal("SSH key unavailable: %v", err)
+		fatal("SSH 私钥不可用：%v", err)
 	}
 
 	name := fmt.Sprintf("stb-probe-%d.pcap", time.Now().UnixNano())
@@ -71,13 +71,13 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.seconds+45)*time.Second)
 	defer cancel()
 
-	fmt.Printf("Capturing on RouterOS %s interface %s for %ds. Reboot or reconnect the STB now.\n", c.router, c.iface, c.seconds)
+	fmt.Printf("正在抓取 RouterOS %s 的 %s 接口，持续 %d 秒。请现在重启或重新连接机顶盒。\n", c.router, c.iface, c.seconds)
 	if err := remoteCapture(ctx, c, name); err != nil {
-		fatal("RouterOS capture failed: %v", err)
+		fatal("RouterOS 抓包失败：%v", err)
 	}
 	defer remoteDelete(context.Background(), c, name)
 	if err := download(ctx, c, name, local); err != nil {
-		fatal("could not download RouterOS pcap: %v", err)
+		fatal("无法下载 RouterOS 抓包文件：%v", err)
 	}
 	if !c.keep {
 		defer os.Remove(local)
@@ -85,11 +85,11 @@ func main() {
 
 	values, err := parsePCAP(local)
 	if err != nil {
-		fatal("could not parse pcap: %v", err)
+		fatal("无法解析抓包文件：%v", err)
 	}
 	printYAML(values)
 	if c.keep {
-		fmt.Printf("# Retained pcap: %s\n", local)
+		fmt.Printf("# 已保留抓包文件：%s\n", local)
 	}
 }
 
@@ -111,7 +111,7 @@ func remoteCapture(ctx context.Context, c capture, name string) error {
 		restore = append(restore, fmt.Sprintf("%s=$p%d", f, i))
 	}
 	script := fmt.Sprintf(":if ([/tool/sniffer get running]) do={:error \"sniffer is already running\"}; :local bp [/interface/bridge/port find where interface=%s]; :local hw \"\"; :if ([:len $bp] > 0) do={:set hw [/interface/bridge/port get $bp hw]; /interface/bridge/port set $bp hw=no}; %s; :do {/tool/sniffer set %s; /tool/sniffer start; :delay %ds} on-error={}; /tool/sniffer stop; :delay 2s; /tool/sniffer set %s; :if ([:len $bp] > 0) do={/interface/bridge/port set $bp hw=$hw}; :put \"stb-probe capture completed\"", rosQuote(c.iface), strings.Join(vars, "; "), set, c.seconds, strings.Join(restore, " "))
-	cmd := exec.CommandContext(ctx, "ssh", "-i", c.key, "-p", fmt.Sprint(c.port), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", fmt.Sprintf("%s@%s", c.user, c.router), script)
+	cmd := exec.CommandContext(ctx, "ssh", "-i", c.key, "-p", fmt.Sprint(c.port), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10", fmt.Sprintf("%s@%s", c.user, c.router), script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
@@ -120,7 +120,7 @@ func remoteCapture(ctx context.Context, c capture, name string) error {
 }
 
 func download(ctx context.Context, c capture, remote, local string) error {
-	cmd := exec.CommandContext(ctx, "scp", "-i", c.key, "-P", fmt.Sprint(c.port), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", fmt.Sprintf("%s@%s:%s", c.user, c.router, remote), local)
+	cmd := exec.CommandContext(ctx, "scp", "-i", c.key, "-P", fmt.Sprint(c.port), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10", fmt.Sprintf("%s@%s:%s", c.user, c.router, remote), local)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
@@ -129,7 +129,7 @@ func download(ctx context.Context, c capture, remote, local string) error {
 }
 
 func remoteDelete(ctx context.Context, c capture, name string) {
-	exec.CommandContext(ctx, "ssh", "-i", c.key, "-p", fmt.Sprint(c.port), "-o", "BatchMode=yes", fmt.Sprintf("%s@%s", c.user, c.router), fmt.Sprintf("/file/remove [find name=%s]", rosQuote(name))).Run()
+	exec.CommandContext(ctx, "ssh", "-i", c.key, "-p", fmt.Sprint(c.port), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", fmt.Sprintf("%s@%s", c.user, c.router), fmt.Sprintf("/file/remove [find name=%s]", rosQuote(name))).Run()
 }
 
 func parsePCAP(path string) (map[string]string, error) {
@@ -286,7 +286,7 @@ func printYAML(v map[string]string) {
 		}
 	}
 	if len(missing) > 0 {
-		fmt.Printf("# Missing: %s. Capture while the physical STB boots or reconnects.\n", strings.Join(missing, ", "))
+		fmt.Printf("# 缺少字段：%s。请在实体机顶盒启动或重新连接时抓包。\n", strings.Join(missing, ", "))
 	}
 }
 

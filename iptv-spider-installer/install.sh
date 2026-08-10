@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [ "${EUID}" -ne 0 ]; then
-  echo "Please run as root."
+  echo "请使用 root 用户运行安装程序。"
   exit 1
 fi
 
@@ -33,7 +33,7 @@ yaml_escape() {
 
 require_value() {
   if [ -z "$2" ]; then
-    echo "$1 cannot be empty."
+    echo "$1不能为空。"
     exit 1
   fi
 }
@@ -44,62 +44,62 @@ yaml_value() {
 }
 
 collect_stb_manual() {
-  STB_UID=$(ask 'IPTV account UID')
-  STB_MAC=$(ask 'STB MAC address')
-  STB_SN=$(ask 'STB serial number')
-  STB_TYPE=$(ask 'STB model')
-  AUTH_HOST=$(ask 'IPTV authentication host' '222.68.208.73:7001')
-  STB_PLANE_A_IP=$(ask 'STB plane-A/LAN IP (optional)')
-  STB_IP=$(ask 'STB plane-B IPTV-network IP')
-  STB_PLANE_B_GATEWAY=$(ask 'STB plane-B gateway (optional)')
+  STB_UID=$(ask 'IPTV 账号 UID')
+  STB_MAC=$(ask '机顶盒 MAC 地址')
+  STB_SN=$(ask '机顶盒 SN 序列号')
+  STB_TYPE=$(ask '机顶盒型号')
+  AUTH_HOST=$(ask 'IPTV 认证服务器（地址:端口）' '222.68.208.73:7001')
+  STB_PLANE_A_IP=$(ask '机顶盒 A 面/LAN 地址（可留空）')
+  STB_IP=$(ask '机顶盒 B 面/IPTV 专网地址')
+  STB_PLANE_B_GATEWAY=$(ask '机顶盒 B 面网关（可留空）')
 }
 
 collect_stb_capture() {
   local probe output capture_ok answer
   probe="$SCRIPT_DIR/bin/stb-probe-linux-amd64"
   if [ "$(uname -m)" != 'x86_64' ] || [ ! -x "$probe" ]; then
-    echo 'This installer does not contain a compatible stb-probe binary for this CPU.'
-    echo 'Choose manual entry or use an amd64 Debian/Ubuntu host for capture.'
+    echo '安装包中没有适用于当前 CPU 的 stb-probe 程序。'
+    echo '请选择手工输入，或在 amd64 Debian/Ubuntu 主机上抓包。'
     return 1
   fi
   if ! command -v ssh >/dev/null 2>&1 || ! command -v scp >/dev/null 2>&1; then
-    echo 'Installing the SSH client required by the capture module...'
+    echo '正在安装抓包模块所需的 SSH 客户端...'
     apt-get update
     apt-get install -y --no-install-recommends openssh-client ca-certificates
   fi
 
-  ROUTER_HOST=$(ask 'RouterOS address' '192.168.100.1')
-  ROUTER_PORT=$(ask 'RouterOS SSH port' '1314')
-  ROUTER_USER=$(ask 'RouterOS SSH user' 'david_ni')
-  ROUTER_KEY=$(ask 'SSH private key path' '/root/.ssh/id_ed25519_sbx_github')
-  ROUTER_IFACE=$(ask 'Physical RouterOS port connected to the STB' 'ether3_lan')
-  CAPTURE_SECONDS=$(ask 'Capture duration in seconds' '120')
-  require_value 'RouterOS address' "$ROUTER_HOST"
-  require_value 'RouterOS SSH user' "$ROUTER_USER"
-  require_value 'SSH private key path' "$ROUTER_KEY"
-  require_value 'RouterOS interface' "$ROUTER_IFACE"
+  ROUTER_HOST=$(ask 'RouterOS 地址' '192.168.100.1')
+  ROUTER_PORT=$(ask 'RouterOS SSH 端口' '1314')
+  ROUTER_USER=$(ask 'RouterOS SSH 用户名' 'david_ni')
+  ROUTER_KEY=$(ask 'SSH 私钥路径' '/root/.ssh/id_ed25519_routeros')
+  ROUTER_IFACE=$(ask '连接实体机顶盒的 RouterOS 物理端口' 'ether3_lan')
+  CAPTURE_SECONDS=$(ask '抓包时长（秒）' '120')
+  require_value 'RouterOS 地址' "$ROUTER_HOST"
+  require_value 'RouterOS SSH 用户名' "$ROUTER_USER"
+  require_value 'SSH 私钥路径' "$ROUTER_KEY"
+  require_value 'RouterOS 端口' "$ROUTER_IFACE"
   if [ ! -r "$ROUTER_KEY" ]; then
-    echo "SSH private key is not readable: $ROUTER_KEY"
+    echo "SSH 私钥无法读取：$ROUTER_KEY"
     return 1
   fi
 
   while :; do
     echo
-    echo 'The capture will run on the RouterOS physical IPTV port.'
-    echo 'After you press Enter and the capture-start message appears, immediately power-cycle the physical STB.'
-    echo 'Wait until the STB reaches its home screen. Do not interrupt this installer during capture.'
-    read -r -p 'Press Enter when you are beside the STB and ready to reboot it... ' answer
+    echo '抓包将在 RouterOS 的 IPTV 物理端口上运行。'
+    echo '按回车并看到“抓包已开始”后，请立即重新启动实体机顶盒。'
+    echo '等待机顶盒进入首页；抓包期间请勿中断安装程序。'
+    read -r -p '确认已经准备好重启机顶盒后，按回车开始抓包... ' answer
     output=$(mktemp /tmp/stb-probe-result.XXXXXX)
     capture_ok=0
     echo
-    echo 'Capture has started. Reboot the physical STB now.'
+    echo '抓包已开始，请现在立即重启实体机顶盒。'
     "$probe" \
       -router "$ROUTER_HOST" -router-port "$ROUTER_PORT" \
       -router-user "$ROUTER_USER" -router-key "$ROUTER_KEY" \
       -interface "$ROUTER_IFACE" -duration "$CAPTURE_SECONDS" >"$output" 2>&1 || capture_ok=$?
 
     echo
-    echo 'Detected STB data:'
+    echo '检测到的机顶盒数据：'
     echo '------------------------------------------------------------'
     cat "$output"
     echo '------------------------------------------------------------'
@@ -116,56 +116,125 @@ collect_stb_capture() {
     rm -f "$output"
 
     if [ "$capture_ok" -eq 0 ] && [ -n "$STB_UID" ] && [ -n "$STB_MAC" ] && [ -n "$STB_SN" ] && [ -n "$STB_IP" ] && [ -n "$AUTH_HOST" ]; then
-      echo 'Capture is complete. These values will be written to config.yaml automatically.'
+      echo '抓包完成，以上数据将自动写入 config.yaml。'
       return 0
     fi
-    echo 'The capture did not contain all required authentication fields.'
-    answer=$(ask 'Enter R to retry capture or M for manual entry' 'R')
+    echo '本次抓包没有取得全部必需的认证字段。'
+    answer=$(ask '输入 R 重新抓包，或输入 M 改为手工填写' 'R')
     case "$answer" in
       [Mm]*) return 1 ;;
     esac
   done
 }
 
-echo 'Shanghai Telecom IPTV Spider installer'
-echo 'The generated config contains IPTV credentials and is never uploaded by this installer.'
+valid_ipv4() {
+  local ip=$1 part
+  local -a parts
+  [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  IFS=. read -r -a parts <<< "$ip"
+  for part in "${parts[@]}"; do
+    [ "$part" -ge 0 ] && [ "$part" -le 255 ] || return 1
+  done
+}
 
-APP_DIR=$(ask 'Install directory' "$DEFAULT_DIR")
-PORT=$(ask 'Service port' '8888')
-LAN_IP=$(ask 'Server LAN IP for EPG and logo URLs')
-require_value 'Server LAN IP' "$LAN_IP"
+configure_iptv_interface() {
+  local answer interfaces_file=/etc/network/interfaces tmp backup
+  echo
+  echo 'IPTV 专网配置'
+  echo "即将把抓到的专网地址 $STB_IP/24 配置到 eth1。"
+  echo '实体机顶盒和本机不能同时使用同一个专网 IP。'
+  while :; do
+    answer=$(ask '请关闭实体机顶盒；关闭后输入 YES，输入 SKIP 可暂不配置')
+    case "$answer" in
+      YES|yes|Yes) break ;;
+      SKIP|skip|Skip)
+        echo '已跳过 eth1 专网配置。稍后请在关闭机顶盒后手工配置。'
+        return 0
+        ;;
+      *) echo '请输入 YES 确认机顶盒已经关闭，或输入 SKIP 跳过。' ;;
+    esac
+  done
+
+  if [ ! -e /sys/class/net/eth1 ]; then
+    echo '未找到 eth1，无法自动配置 IPTV 专网；安装的其他部分不受影响。'
+    return 0
+  fi
+  if ! valid_ipv4 "$STB_IP"; then
+    echo "抓到的 IPTV 专网地址格式无效：$STB_IP"
+    return 0
+  fi
+  if grep -Eq '^[[:space:]]*iface[[:space:]]+eth1[[:space:]]+inet' "$interfaces_file" && \
+     ! grep -q '^# BEGIN IPTV-SPIDER ETH1$' "$interfaces_file"; then
+    echo '/etc/network/interfaces 中已经存在非本程序创建的 eth1 配置。'
+    echo '为避免覆盖用户配置，已跳过自动配置，请手工检查 eth1。'
+    return 0
+  fi
+
+  backup="${interfaces_file}.iptv-spider.$(date +%Y%m%d%H%M%S).bak"
+  cp -a "$interfaces_file" "$backup"
+  tmp=$(mktemp /tmp/interfaces.XXXXXX)
+  awk '
+    $0 == "# BEGIN IPTV-SPIDER ETH1" {skip=1; next}
+    $0 == "# END IPTV-SPIDER ETH1" {skip=0; next}
+    !skip {print}
+  ' "$interfaces_file" > "$tmp"
+  {
+    cat "$tmp"
+    printf '\n# BEGIN IPTV-SPIDER ETH1\n'
+    printf 'auto eth1\n'
+    printf 'iface eth1 inet static\n'
+    printf '\taddress %s/24\n' "$STB_IP"
+    printf '# END IPTV-SPIDER ETH1\n'
+  } > "$interfaces_file"
+  rm -f "$tmp"
+
+  ip link set eth1 up
+  ip -4 addr flush dev eth1 scope global
+  ip addr add "$STB_IP/24" dev eth1
+  echo "eth1 已配置为 $STB_IP/24；未重启网络，当前 SSH 连接不受影响。"
+  echo "原网络配置备份：$backup"
+  systemctl restart iptv-spider
+}
+
+echo '上海电信 IPTV Spider 安装程序'
+echo '生成的配置包含 IPTV 认证信息；本安装程序不会上传这些信息。'
+
+APP_DIR=$(ask '安装目录' "$DEFAULT_DIR")
+PORT=$(ask '服务端口' '8888')
+LAN_IP=$(ask '用于节目源、EPG 和 Logo 的服务器 LAN 地址')
+require_value '服务器 LAN 地址' "$LAN_IP"
 
 echo
-echo 'Crawler / STB configuration'
-echo '  1) Enter STB information manually'
-echo '  2) Capture STB authentication through RouterOS'
-STB_MODE=$(ask 'Select STB setup mode' '2')
+echo '抓取模块与机顶盒配置'
+echo '  1) 手工输入机顶盒信息'
+echo '  2) 通过 RouterOS 自动抓取机顶盒认证信息'
+STB_MODE=$(ask '请选择机顶盒信息获取方式' '2')
 case "$STB_MODE" in
   2|[Cc]*) collect_stb_capture || collect_stb_manual ;;
   *) collect_stb_manual ;;
 esac
-require_value 'IPTV account UID' "$STB_UID"
-require_value 'STB MAC address' "$STB_MAC"
-require_value 'STB serial number' "$STB_SN"
-require_value 'STB IPTV-network IP' "$STB_IP"
+require_value 'IPTV 账号 UID' "$STB_UID"
+require_value '机顶盒 MAC 地址' "$STB_MAC"
+require_value '机顶盒 SN 序列号' "$STB_SN"
+require_value '机顶盒 IPTV 专网地址' "$STB_IP"
 
 echo
-echo 'Catch-up and live-list configuration'
-SOURCE_M3U=$(ask 'Existing live M3U source URL (optional)')
-UDPXY=$(ask 'udpxy/msd_lite address for direct playlist (optional, host:port)')
-CATCHUP_DAYS=$(ask 'Catch-up days' '7')
-RELAY_CLIENTS=$(ask 'Relay client IPs, comma-separated (optional)')
+echo '直播与回放配置'
+SOURCE_M3U=$(ask '已有直播 M3U 地址（可留空，留空则使用项目自身输出）')
+UDPXY=$(ask 'udpxy/msd_lite 地址（可留空，格式：主机:端口）')
+CATCHUP_DAYS=$(ask '回放天数' '7')
+RELAY_CLIENTS=$(ask '需要中继的客户端地址（可留空，多个地址用逗号分隔）')
 
 echo
-echo 'MySQL / MariaDB configuration'
-MYSQL_HOST=$(ask 'MySQL host' '127.0.0.1')
-MYSQL_DB=$(ask 'Database name' 'iptv')
-MYSQL_USER=$(ask 'Database user' 'iptv')
-MYSQL_PASSWORD=$(ask_secret 'Database password')
-require_value 'Database password' "$MYSQL_PASSWORD"
+echo 'MySQL / MariaDB 配置'
+MYSQL_HOST=$(ask 'MySQL 主机' '127.0.0.1')
+MYSQL_DB=$(ask '数据库名称' 'iptv')
+MYSQL_USER=$(ask '数据库用户名' 'iptv')
+MYSQL_PASSWORD=$(ask_secret '数据库密码')
+require_value '数据库密码' "$MYSQL_PASSWORD"
 
 if [ -d "$APP_DIR" ] && [ -f "$APP_DIR/config.yaml" ]; then
-  echo "$APP_DIR already contains config.yaml; installation stopped to protect it."
+  echo "$APP_DIR 已存在 config.yaml。为保护现有配置，安装已停止。"
   exit 1
 fi
 
@@ -188,7 +257,7 @@ if [ -x "$APP_DIR/bin/iptv-spider-linux-amd64" ] && [ "$(uname -m)" = 'x86_64' ]
 elif command -v go >/dev/null 2>&1; then
   (cd "$APP_DIR" && go build -o iptv-spider .)
 else
-  echo 'No compatible bundled binary and Go is not installed.'
+  echo '安装包中没有兼容的程序，系统也未安装 Go，无法继续。'
   exit 1
 fi
 
@@ -224,9 +293,10 @@ chmod 600 "$APP_DIR/config.yaml"
 sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > /etc/systemd/system/iptv-spider.service
 systemctl daemon-reload
 systemctl enable --now iptv-spider
+configure_iptv_interface
 
 echo
-echo 'Installation complete.'
-echo "M3U: http://$LAN_IP:$PORT/tv-direct.m3u"
-echo "EPG: http://$LAN_IP:$PORT/api/epg?daysAgo=$CATCHUP_DAYS"
-echo "Logos: http://$LAN_IP:$PORT/iptvlogos/CGTN.png"
+echo '安装完成。'
+echo "节目源 M3U：http://$LAN_IP:$PORT/tv-direct.m3u"
+echo "节目单 EPG：http://$LAN_IP:$PORT/api/epg?daysAgo=$CATCHUP_DAYS"
+echo "Logo 示例：http://$LAN_IP:$PORT/iptvlogos/CGTN.png"
