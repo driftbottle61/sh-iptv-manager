@@ -38,6 +38,95 @@ require_value() {
   fi
 }
 
+yaml_value() {
+  local key=$1 file=$2
+  sed -n "s/^[[:space:]]*${key}:[[:space:]]*\"\(.*\)\"[[:space:]]*$/\1/p" "$file" | tail -n 1
+}
+
+collect_stb_manual() {
+  STB_UID=$(ask 'IPTV account UID')
+  STB_MAC=$(ask 'STB MAC address')
+  STB_SN=$(ask 'STB serial number')
+  STB_TYPE=$(ask 'STB model')
+  AUTH_HOST=$(ask 'IPTV authentication host' '222.68.208.73:7001')
+  STB_PLANE_A_IP=$(ask 'STB plane-A/LAN IP (optional)')
+  STB_IP=$(ask 'STB plane-B IPTV-network IP')
+  STB_PLANE_B_GATEWAY=$(ask 'STB plane-B gateway (optional)')
+}
+
+collect_stb_capture() {
+  local probe output capture_ok answer
+  probe="$SCRIPT_DIR/bin/stb-probe-linux-amd64"
+  if [ "$(uname -m)" != 'x86_64' ] || [ ! -x "$probe" ]; then
+    echo 'This installer does not contain a compatible stb-probe binary for this CPU.'
+    echo 'Choose manual entry or use an amd64 Debian/Ubuntu host for capture.'
+    return 1
+  fi
+  if ! command -v ssh >/dev/null 2>&1 || ! command -v scp >/dev/null 2>&1; then
+    echo 'Installing the SSH client required by the capture module...'
+    apt-get update
+    apt-get install -y --no-install-recommends openssh-client ca-certificates
+  fi
+
+  ROUTER_HOST=$(ask 'RouterOS address' '192.168.100.1')
+  ROUTER_PORT=$(ask 'RouterOS SSH port' '1314')
+  ROUTER_USER=$(ask 'RouterOS SSH user' 'david_ni')
+  ROUTER_KEY=$(ask 'SSH private key path' '/root/.ssh/id_ed25519_sbx_github')
+  ROUTER_IFACE=$(ask 'Physical RouterOS port connected to the STB' 'ether3_lan')
+  CAPTURE_SECONDS=$(ask 'Capture duration in seconds' '120')
+  require_value 'RouterOS address' "$ROUTER_HOST"
+  require_value 'RouterOS SSH user' "$ROUTER_USER"
+  require_value 'SSH private key path' "$ROUTER_KEY"
+  require_value 'RouterOS interface' "$ROUTER_IFACE"
+  if [ ! -r "$ROUTER_KEY" ]; then
+    echo "SSH private key is not readable: $ROUTER_KEY"
+    return 1
+  fi
+
+  while :; do
+    echo
+    echo 'The capture will run on the RouterOS physical IPTV port.'
+    echo 'After you press Enter and the capture-start message appears, immediately power-cycle the physical STB.'
+    echo 'Wait until the STB reaches its home screen. Do not interrupt this installer during capture.'
+    read -r -p 'Press Enter when you are beside the STB and ready to reboot it... ' answer
+    output=$(mktemp /tmp/stb-probe-result.XXXXXX)
+    capture_ok=0
+    echo
+    echo 'Capture has started. Reboot the physical STB now.'
+    "$probe" \
+      -router "$ROUTER_HOST" -router-port "$ROUTER_PORT" \
+      -router-user "$ROUTER_USER" -router-key "$ROUTER_KEY" \
+      -interface "$ROUTER_IFACE" -duration "$CAPTURE_SECONDS" >"$output" 2>&1 || capture_ok=$?
+
+    echo
+    echo 'Detected STB data:'
+    echo '------------------------------------------------------------'
+    cat "$output"
+    echo '------------------------------------------------------------'
+    if [ "$capture_ok" -eq 0 ]; then
+      STB_UID=$(yaml_value uid "$output")
+      STB_MAC=$(yaml_value mac "$output")
+      STB_SN=$(yaml_value sn "$output")
+      STB_TYPE=$(yaml_value type "$output")
+      AUTH_HOST=$(yaml_value auth_host "$output")
+      STB_PLANE_A_IP=$(yaml_value plane_a_ip "$output")
+      STB_IP=$(yaml_value plane_b_ip "$output")
+      STB_PLANE_B_GATEWAY=$(yaml_value plane_b_gateway "$output")
+    fi
+    rm -f "$output"
+
+    if [ "$capture_ok" -eq 0 ] && [ -n "$STB_UID" ] && [ -n "$STB_MAC" ] && [ -n "$STB_SN" ] && [ -n "$STB_IP" ] && [ -n "$AUTH_HOST" ]; then
+      echo 'Capture is complete. These values will be written to config.yaml automatically.'
+      return 0
+    fi
+    echo 'The capture did not contain all required authentication fields.'
+    answer=$(ask 'Enter R to retry capture or M for manual entry' 'R')
+    case "$answer" in
+      [Mm]*) return 1 ;;
+    esac
+  done
+}
+
 echo 'Shanghai Telecom IPTV Spider installer'
 echo 'The generated config contains IPTV credentials and is never uploaded by this installer.'
 
@@ -48,12 +137,13 @@ require_value 'Server LAN IP' "$LAN_IP"
 
 echo
 echo 'Crawler / STB configuration'
-STB_UID=$(ask 'IPTV account UID')
-STB_MAC=$(ask 'STB MAC address')
-STB_SN=$(ask 'STB serial number')
-STB_IP=$(ask 'STB IPTV-network IP')
-STB_TYPE=$(ask 'STB model')
-AUTH_HOST=$(ask 'IPTV authentication host' '222.68.208.73:7001')
+echo '  1) Enter STB information manually'
+echo '  2) Capture STB authentication through RouterOS'
+STB_MODE=$(ask 'Select STB setup mode' '2')
+case "$STB_MODE" in
+  2|[Cc]*) collect_stb_capture || collect_stb_manual ;;
+  *) collect_stb_manual ;;
+esac
 require_value 'IPTV account UID' "$STB_UID"
 require_value 'STB MAC address' "$STB_MAC"
 require_value 'STB serial number' "$STB_SN"
@@ -81,7 +171,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl mariadb-client mariadb-server
+apt-get install -y --no-install-recommends ca-certificates curl openssh-client mariadb-client mariadb-server
 
 if [ "$MYSQL_HOST" = '127.0.0.1' ] || [ "$MYSQL_HOST" = 'localhost' ]; then
   mariadb -e "CREATE DATABASE IF NOT EXISTS \`$MYSQL_DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
@@ -115,9 +205,10 @@ fi
 
 {
   printf "system:\n  env: 'release'\n  addr: '0.0.0.0:%s'\n  db-type: 'mysql'\n  oss-type: ''\n\n" "$PORT"
-  printf "stb:\n  uid: '%s'\n  mac: '%s'\n  sn: '%s'\n  ip: '%s'\n  type: '%s'\n  auth_host: '%s'\n\n" \
+  printf "stb:\n  uid: '%s'\n  mac: '%s'\n  sn: '%s'\n  ip: '%s'\n  type: '%s'\n  auth_host: '%s'\n  plane_a_ip: '%s'\n  plane_b_gateway: '%s'\n\n" \
     "$(yaml_escape "$STB_UID")" "$(yaml_escape "$STB_MAC")" "$(yaml_escape "$STB_SN")" \
-    "$(yaml_escape "$STB_IP")" "$(yaml_escape "$STB_TYPE")" "$(yaml_escape "$AUTH_HOST")"
+    "$(yaml_escape "$STB_IP")" "$(yaml_escape "$STB_TYPE")" "$(yaml_escape "$AUTH_HOST")" \
+    "$(yaml_escape "$STB_PLANE_A_IP")" "$(yaml_escape "$STB_PLANE_B_GATEWAY")"
   printf "epg:\n  generator: 'sh-iptv-spider'\n  source: 'Shanghai Telecom IPTV'\n  xml_url: 'http://%s:%s/api/epg?daysAgo=%s'\n  fetch_cron: '0 0 8,16,23 * * *'\n\n" "$LAN_IP" "$PORT" "$CATCHUP_DAYS"
   printf "catchup:\n  source_m3u: '%s'\n  udpxy: '%s'\n  days: %s\n  relay_clients: %s\n\n" \
     "$(yaml_escape "$SOURCE_M3U")" "$(yaml_escape "$UDPXY")" "$CATCHUP_DAYS" "$relay_yaml"

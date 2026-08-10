@@ -11,6 +11,8 @@ stb:
   ip: ''
   type: ''
   auth_host: '222.68.208.73:7001'
+  plane_a_ip: ''
+  plane_b_gateway: ''
 
 epg:
   generator: 'sh-iptv-spider'

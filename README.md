@@ -17,15 +17,23 @@
 ## 安装使用
 自行探索
 
+## 安装前发现机顶盒认证参数
+
+新 Ubuntu/CT 还未打通 IPTV 专网时，可从有 SSH 管理权限的 RouterOS 上抓取实体
+机顶盒认证流量，而不是在目标 CT 或 `.90` 上抓包。安装包中的
+[`stb-probe`](iptv-spider-installer/cmd/stb-probe/) 会通过 RouterOS 生成短时 pcap、
+下载到运行工具的主机解析，并恢复 RouterOS 原有 sniffer 参数。使用方法见
+[安装包中文文档](iptv-spider-installer/README_CN.md#安装前从-routeros-获取机顶盒参数)。
+
 ## 可安装发行版
 
 面向 Debian/Ubuntu 的交互式安装包在
 [`iptv-spider-installer/`](iptv-spider-installer/)；它不包含任何账号、机顶盒认证信息或现网配置。
 
-最新发行版为 `v1.1.1`。下载 `releases/sh-iptv-spider-installer-1.1.1-linux-amd64.tar.gz` 后执行：
+最新发行版为 `v1.2.0`。下载 `releases/sh-iptv-spider-installer-1.2.0-linux-amd64.tar.gz` 后执行：
 
 ```bash
-tar -xzf sh-iptv-spider-installer-1.1.1-linux-amd64.tar.gz
+tar -xzf sh-iptv-spider-installer-1.2.0-linux-amd64.tar.gz
 cd sh-iptv-spider-installer
 sudo ./install.sh
 ```
@@ -36,7 +44,7 @@ sudo ./install.sh
 也可使用一键安装脚本：
 
 ```bash
-curl -fsSL https://github.com/driftbottle61/sh-iptv-manager/releases/download/v1.1.1/install-oneclick.sh | sudo bash
+curl -fsSL https://github.com/driftbottle61/sh-iptv-manager/releases/download/v1.2.0/install-oneclick.sh | sudo bash
 ```
 详细说明见 [安装包中文文档](iptv-spider-installer/README_CN.md)。
 

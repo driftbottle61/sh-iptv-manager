@@ -11,6 +11,8 @@ stb:
   ip: '<IPTV专网IP>'
   type: '<机顶盒型号>'
   auth_host: '<认证服务器:端口>'
+  plane_a_ip: '<机顶盒A面/LAN地址>'
+  plane_b_gateway: '<机顶盒B面网关>'
 
 epg:
   generator: 'Shanghai Telecom IPTV Spider'
