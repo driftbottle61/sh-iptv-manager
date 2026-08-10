@@ -155,7 +155,7 @@ func GenerateCatchupM3u(ctx iris.Context) {
 }
 
 func GenerateTiviMateM3u(ctx iris.Context) {
-	generateCatchupM3uWithDefaults(ctx, tiviMateSourceURL, 5)
+	generateCatchupM3uWithDefaults(ctx, tiviMateSourceURL, catchupMaxDays)
 }
 
 func generateCatchupM3uWithDefaults(ctx iris.Context, defaultSource string, defaultDays int) {
@@ -307,16 +307,16 @@ func streamCatchup(ctx iris.Context) {
 		stopRequest(ctx, iris.StatusNotFound, errors.New("catchup channel not found"))
 		return
 	}
-	// 默认「直连 CDN」：上海电信回放 HLS 媒体位于公网 CDN（非专网私地址），
-	// Tivimate 可直连，速度约为内置中继的 2.6 倍（实测 3.8 vs 1.47 MB/s），
-	// 并由播放器原生按需拉分片，不再被服务端单连接串行中继拖慢。
-	// 仅当显式设置 CATCHUP_MODE=relay 时才回退到内置中继
-	//（适用于确实无法直连公网 CDN 的网络环境，无需重新编译即可回退）。
+	// All private/LAN clients use the .90 server as the catch-up relay. This keeps
+	// IPTV-network CDN access on the server side and avoids relying on each TV or
+	// set-top-box client to route the provider's public CDN correctly. Public
+	// clients retain the redirect path unless CATCHUP_MODE=relay is set.
 	remoteHost := ctx.RemoteAddr()
 	if host, _, err := net.SplitHostPort(remoteHost); err == nil {
 		remoteHost = host
 	}
-	useRelay := strings.EqualFold(os.Getenv("CATCHUP_MODE"), "relay") || strings.HasPrefix(remoteHost, "192.168.88.")
+	clientIP := net.ParseIP(strings.Trim(remoteHost, "[]"))
+	useRelay := strings.EqualFold(os.Getenv("CATCHUP_MODE"), "relay") || isPrivateClient(clientIP)
 	if useRelay {
 		ctx.ContentType("video/mp2t")
 		ctx.Header("Cache-Control", "no-store")
@@ -328,6 +328,10 @@ func streamCatchup(ctx iris.Context) {
 	}
 	ctx.Header("Cache-Control", "no-store")
 	ctx.Redirect(playURL, iris.StatusFound)
+}
+
+func isPrivateClient(ip net.IP) bool {
+	return ip != nil && (ip.IsPrivate() || ip.IsLoopback())
 }
 
 func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) error {

@@ -40,7 +40,7 @@ sudo ./install.sh
 
 ```text
 http://<server>:<port>/tv-direct.m3u
-http://<server>:<port>/api/epg?daysAgo=5
+http://<server>:<port>/api/epg?daysAgo=7
 http://<server>:<port>/iptvlogos/CGTN.png
 ```
 

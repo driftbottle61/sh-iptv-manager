@@ -62,7 +62,7 @@ func InitApiRouters(rg iris.Party) {
 
 func GenerateDirectTiviMateM3u(ctx iris.Context) {
 	udpxy := ctx.URLParamDefault("udpxy", "192.168.100.51:4022")
-	days := 5
+	days := 7
 	scheme := ctx.GetHeader("X-Forwarded-Proto")
 	if scheme == "" {
 		scheme = "http"

@@ -17,7 +17,7 @@ stb:
 epg:
   generator: 'sh-iptv-spider'
   source: 'Shanghai Telecom IPTV'
-  xml_url: 'http://192.168.100.90:8888/api/epg?daysAgo=5'
+  xml_url: 'http://192.168.100.90:8888/api/epg?daysAgo=7'
   fetch_cron: '0 0 8,16,23 * * *'
 
 catchup:
@@ -25,7 +25,7 @@ catchup:
   source_m3u: ''
   # Multicast-to-unicast endpoint for /tv-direct.m3u, for example 192.168.100.51:4022.
   udpxy: ''
-  days: 5
+  days: 7
   # Source IPs that need the spider to relay TVOD streams instead of returning a redirect.
   relay_clients: []
 

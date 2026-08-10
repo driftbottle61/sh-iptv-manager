@@ -153,7 +153,7 @@ echo
 echo 'Catch-up and live-list configuration'
 SOURCE_M3U=$(ask 'Existing live M3U source URL (optional)')
 UDPXY=$(ask 'udpxy/msd_lite address for direct playlist (optional, host:port)')
-CATCHUP_DAYS=$(ask 'Catch-up days' '5')
+CATCHUP_DAYS=$(ask 'Catch-up days' '7')
 RELAY_CLIENTS=$(ask 'Relay client IPs, comma-separated (optional)')
 
 echo

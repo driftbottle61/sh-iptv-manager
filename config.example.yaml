@@ -17,7 +17,7 @@ stb:
 epg:
   generator: 'Shanghai Telecom IPTV Spider'
   source: 'Shanghai Telecom IPTV Spider'
-  xml_url: 'http://<服务器LAN地址>:8888/api/epg?daysAgo=5'
+  xml_url: 'http://<服务器LAN地址>:8888/api/epg?daysAgo=7'
   fetch_cron: '0 0 8,16,23 * * *'
 
 oss:

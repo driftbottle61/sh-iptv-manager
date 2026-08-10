@@ -146,7 +146,7 @@ stb:
   auth_host: '<认证服务器:端口>'
 
 epg:
-  xml_url: 'http://<服务器 LAN IP>:8888/api/epg?daysAgo=5'
+  xml_url: 'http://<服务器 LAN IP>:8888/api/epg?daysAgo=7'
   fetch_cron: '0 0 8,16,23 * * *'
 
 mysql:
@@ -215,7 +215,7 @@ curl http://127.0.0.1:8888/tv.m3u -o /dev/null
 
 | 地址 | 用途 |
 | --- | --- |
-| `http://<服务器IP>:8888/api/epg?daysAgo=5` | XMLTV 节目单 |
+| `http://<服务器IP>:8888/api/epg?daysAgo=7` | XMLTV 节目单 |
 | `http://<服务器IP>:8888/tv.m3u` | 适配 TiviMate 的直播和回看播放列表 |
 | `http://<服务器IP>:8888/api/catchup/m3u` | 带回看属性的通用 M3U |
 
@@ -234,7 +234,7 @@ http://<IPTV Spider LAN IP>:8888/tv.m3u
 4. 节目单地址填写：
 
 ```text
-http://<IPTV Spider LAN IP>:8888/api/epg?daysAgo=5
+http://<IPTV Spider LAN IP>:8888/api/epg?daysAgo=7
 ```
 
 5. 刷新播放列表与节目单后，历史节目应显示回看入口。
