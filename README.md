@@ -30,21 +30,21 @@
 面向 Debian/Ubuntu 的交互式安装包在
 [`iptv-spider-installer/`](iptv-spider-installer/)；它不包含任何账号、机顶盒认证信息或现网配置。
 
-最新发行版为 `v1.2.4`。下载 `releases/sh-iptv-spider-installer-1.2.4-linux-amd64.tar.gz` 后执行：
+最新发行版为 `v1.2.5`。下载 `releases/sh-iptv-spider-installer-1.2.5-linux-amd64.tar.gz` 后执行：
 
 ```bash
-tar -xzf sh-iptv-spider-installer-1.2.4-linux-amd64.tar.gz
+tar -xzf sh-iptv-spider-installer-1.2.5-linux-amd64.tar.gz
 cd sh-iptv-spider-installer
 sudo ./install.sh
 ```
 
 安装程序会交互填写抓取和回放配置，并内置频道 Logo。发行包 SHA256：
-`328984963ba61c2ba7a40236dc687a5cfd4b2dc7ddf03069ba77032796444ef3`。
+`c4eb221c7adc14eba7b664f1c1bc0a73a1e985177278df3e157d2fa0212c0af7`。
 
 也可使用一键安装脚本：
 
 ```bash
-curl -fsSL https://github.com/driftbottle61/sh-iptv-manager/releases/download/v1.2.4/install-oneclick.sh | sudo bash
+curl -fsSL https://github.com/driftbottle61/sh-iptv-manager/releases/download/v1.2.5/install-oneclick.sh | sudo bash
 ```
 详细说明见 [安装包中文文档](iptv-spider-installer/README_CN.md)。
 

@@ -152,9 +152,13 @@ func (c *Client) FetchChannelProg() {
 				zap.Any("resp", respJson))
 			continue
 		}
-		// 避免节目时间重合问题，删除所有老数据
-		global.DB.Unscoped().Where("comm_name = ?", ch.CommName).Delete(&model.EPGDetails{})
 		daysAgo := now.SubDays(7).TimestampMilli()
+		// Keep completed programmes until the catch-up window expires. Providers
+		// sometimes revise historical schedules after clients have cached the EPG;
+		// deleting those rows also deletes the playbill ID needed by old catch-up
+		// links. Only current/future rows are replaced by the fresh schedule.
+		global.DB.Unscoped().Where("comm_name = ? AND end_time > ?", ch.CommName, now.TimestampMilli()).Delete(&model.EPGDetails{})
+		global.DB.Unscoped().Where("end_time < ?", daysAgo).Delete(&model.EPGDetails{})
 		length := 0
 		var des []model.EPGDetails
 		for _, details := range respJson.Data {

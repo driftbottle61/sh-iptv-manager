@@ -496,21 +496,28 @@ func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) (int64,
 func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration time.Duration) (string, error) {
 	var info model.ChannelInfo
 	if err := global.DB.Where("mix_no = ?", mixNo).First(&info).Error; err != nil {
-		return "", &tvodError{status: http.StatusNotFound, msg: "catchup program not found"}
+		return "", err
 	}
 	var program model.EPGDetails
 	ms := start.UnixMilli()
+	exactProgram := true
 	if err := global.DB.Where("comm_name = ? AND start_time <= ? AND end_time > ?", info.CommName, ms, ms).Order("start_time DESC").First(&program).Error; err != nil {
-		return "", err
+		exactProgram = false
+		if previousErr := global.DB.Where("comm_name = ? AND end_time <= ?", info.CommName, ms).Order("end_time DESC").First(&program).Error; previousErr != nil || ms-program.EndTime > int64(6*time.Hour/time.Millisecond) {
+			if nextErr := global.DB.Where("comm_name = ? AND start_time > ?", info.CommName, ms).Order("start_time ASC").First(&program).Error; nextErr != nil || program.StartTime-ms > int64(6*time.Hour/time.Millisecond) {
+				return "", &tvodError{status: http.StatusNotFound, msg: "catchup program not found"}
+			}
+		}
+		global.LOG.Warn(fmt.Sprintf("catchup EPG gap fallback channel=%s requested=%s anchor=%s", mixNo, start.Format(time.RFC3339), program.ID))
 	}
 	programStart := program.StartTime / 1000
 	programEnd := program.EndTime / 1000
 	requestedStart := start.Unix()
-	if requestedStart < programStart {
+	if exactProgram && requestedStart < programStart {
 		requestedStart = programStart
 	}
 	requestedEnd := start.Add(duration).Unix()
-	if requestedEnd > programEnd {
+	if exactProgram && requestedEnd > programEnd {
 		requestedEnd = programEnd
 	}
 	if requestedEnd > time.Now().Unix() {
