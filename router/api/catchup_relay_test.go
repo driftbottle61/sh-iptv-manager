@@ -1,26 +1,50 @@
 package api
 
 import (
-	"net"
+	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
-func TestIsPrivateClient(t *testing.T) {
-	tests := map[string]bool{
-		"192.168.100.50": true,
-		"192.168.88.1":   true,
-		"10.0.0.1":       true,
-		"172.16.0.1":     true,
-		"127.0.0.1":      true,
-		"8.8.8.8":        false,
-		"1.1.1.1":        false,
+func TestRelayHLSUnauthorizedIsRetryable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "expired", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	var output bytes.Buffer
+	written, err := relayHLS(context.Background(), server.URL, &output)
+	if err == nil {
+		t.Fatal("expected an unauthorized error")
 	}
-	for address, expected := range tests {
-		if actual := isPrivateClient(net.ParseIP(address)); actual != expected {
-			t.Fatalf("isPrivateClient(%s) = %v, want %v", address, actual, expected)
+	if written != 0 || output.Len() != 0 {
+		t.Fatalf("unauthorized response wrote media: written=%d buffer=%d", written, output.Len())
+	}
+	if !retryableRelayError(err) {
+		t.Fatalf("unauthorized response should be retryable: %v", err)
+	}
+}
+
+func TestRelayHLSWritesMediaSegment(t *testing.T) {
+	const media = "test MPEG-TS payload"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/segment.ts") {
+			_, _ = w.Write([]byte(media))
+			return
 		}
+		_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n"))
+	}))
+	defer server.Close()
+
+	var output bytes.Buffer
+	written, err := relayHLS(context.Background(), server.URL+"/index.m3u8", &output)
+	if err != nil {
+		t.Fatalf("relay failed: %v", err)
 	}
-	if isPrivateClient(nil) {
-		t.Fatal("isPrivateClient(nil) = true, want false")
+	if written != int64(len(media)) || output.String() != media {
+		t.Fatalf("unexpected media: written=%d output=%q", written, output.String())
 	}
 }

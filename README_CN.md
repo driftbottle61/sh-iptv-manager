@@ -60,6 +60,7 @@ add bridge=bridge_iptv interface=pon-vlan85
 ```routeros
 /ip route
 add dst-address=222.68.211.94/32 gateway=30.182.0.1 comment="IPTV TVOD dispatch"
+add dst-address=124.75.26.0/24 gateway=30.182.0.1 comment="IPTV TVOD CDN"
 add dst-address=124.75.27.0/24 gateway=30.182.0.1 comment="IPTV TVOD CDN"
 add dst-address=124.75.28.0/24 gateway=30.182.0.1 comment="IPTV TVOD CDN"
 ```
@@ -82,6 +83,7 @@ add chain=srcnat src-address=192.168.100.90 out-interface=bridge_iptv action=mas
 ```routeros
 /ip firewall nat
 add chain=dstnat action=accept protocol=tcp dst-address=222.68.211.94 dst-port=8006 comment="IPTV TVOD bypass"
+add chain=dstnat action=accept protocol=tcp dst-address=124.75.26.0/24 dst-port=8006 comment="IPTV TVOD CDN bypass"
 add chain=dstnat action=accept protocol=tcp dst-address=124.75.27.0/24 dst-port=8006 comment="IPTV TVOD CDN bypass"
 add chain=dstnat action=accept protocol=tcp dst-address=124.75.28.0/24 dst-port=8006 comment="IPTV TVOD CDN bypass"
 ```

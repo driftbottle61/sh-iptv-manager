@@ -155,6 +155,21 @@ var tvodHTTPClient = &http.Client{
 
 var tvodAuthMu sync.Mutex
 
+type tvodError struct {
+	status int
+	msg    string
+}
+
+func (e *tvodError) Error() string { return e.msg }
+
+type hlsRelayError struct {
+	status int
+	err    error
+}
+
+func (e *hlsRelayError) Error() string { return e.err.Error() }
+func (e *hlsRelayError) Unwrap() error { return e.err }
+
 type rtspResponse struct {
 	status  int
 	headers textproto.MIMEHeader
@@ -322,7 +337,14 @@ func streamCatchup(ctx iris.Context) {
 	playURL, err := getTvodPlayURL(ctx.Request().Context(), channelID, start, duration)
 	if err != nil {
 		global.LOG.Warn(fmt.Sprintf("catchup upstream failed channel=%s error=%s", channelID, err.Error()))
-		stopRequest(ctx, iris.StatusNotFound, errors.New("catchup channel not found"))
+		status := iris.StatusBadGateway
+		message := "upstream TVOD service unavailable"
+		var te *tvodError
+		if errors.As(err, &te) {
+			status = te.status
+			message = te.msg
+		}
+		stopRequest(ctx, status, errors.New(message))
 		return
 	}
 	// All private/LAN clients use the .90 server as the catch-up relay. This keeps
@@ -339,8 +361,21 @@ func streamCatchup(ctx iris.Context) {
 		ctx.ContentType("video/mp2t")
 		ctx.Header("Cache-Control", "no-store")
 		ctx.Header("X-Accel-Buffering", "no")
-		if err := relayHLS(ctx.Request().Context(), playURL, ctx.ResponseWriter()); err != nil && ctx.Request().Context().Err() == nil {
-			global.LOG.Warn(fmt.Sprintf("catchup relay stopped channel=%s remote=%s error=%s", channelID, ctx.RemoteAddr(), err.Error()))
+		for attempt := 0; attempt < 3; attempt++ {
+			written, relayErr := relayHLS(ctx.Request().Context(), playURL, ctx.ResponseWriter())
+			if relayErr == nil || ctx.Request().Context().Err() != nil {
+				return
+			}
+			if written > 0 || !retryableRelayError(relayErr) || attempt == 2 {
+				global.LOG.Warn(fmt.Sprintf("catchup relay stopped channel=%s remote=%s bytes=%d error=%s", channelID, ctx.RemoteAddr(), written, relayErr.Error()))
+				return
+			}
+			global.LOG.Warn(fmt.Sprintf("catchup relay retry channel=%s attempt=%d error=%s", channelID, attempt+1, relayErr.Error()))
+			playURL, err = getTvodPlayURL(ctx.Request().Context(), channelID, start, duration)
+			if err != nil {
+				global.LOG.Warn(fmt.Sprintf("catchup relay refresh failed channel=%s error=%s", channelID, err.Error()))
+				return
+			}
 		}
 		return
 	}
@@ -352,26 +387,43 @@ func isPrivateClient(ip net.IP) bool {
 	return ip != nil && (ip.IsPrivate() || ip.IsLoopback())
 }
 
-func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) error {
-	client := &http.Client{Timeout: 20 * time.Second}
+func retryableRelayError(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	var relayErr *hlsRelayError
+	if errors.As(err, &relayErr) {
+		return relayErr.status == http.StatusUnauthorized || relayErr.status == http.StatusForbidden ||
+			relayErr.status == http.StatusNotFound || relayErr.status == http.StatusTooManyRequests || relayErr.status >= 500
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) (int64, error) {
+	client := &http.Client{Transport: &http.Transport{
+		DialContext:           (&net.Dialer{Timeout: 8 * time.Second}).DialContext,
+		ResponseHeaderTimeout: 8 * time.Second,
+	}}
 	current := playlistURL
 	seen := make(map[string]bool)
+	var written int64
 	for {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, current, nil)
 		if err != nil {
-			return err
+			return written, err
 		}
 		response, err := client.Do(request)
 		if err != nil {
-			return err
+			return written, err
 		}
 		body, readErr := io.ReadAll(io.LimitReader(response.Body, 32<<20))
 		response.Body.Close()
 		if readErr != nil {
-			return readErr
+			return written, readErr
 		}
 		if response.StatusCode != http.StatusOK {
-			return fmt.Errorf("HLS request returned %s", response.Status)
+			return written, &hlsRelayError{status: response.StatusCode, err: fmt.Errorf("HLS request returned %s", response.Status)}
 		}
 		lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
 		base, _ := url.Parse(current)
@@ -400,7 +452,7 @@ func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) error {
 			continue
 		}
 		if len(segments) == 0 {
-			return errors.New("HLS playlist has no media segments")
+			return written, errors.New("HLS playlist has no media segments")
 		}
 		for _, segment := range segments {
 			if seen[segment] {
@@ -409,31 +461,32 @@ func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) error {
 			seen[segment] = true
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, segment, nil)
 			if err != nil {
-				return err
+				return written, err
 			}
 			resp, err := client.Do(req)
 			if err != nil {
-				return err
+				return written, err
 			}
 			if resp.StatusCode != http.StatusOK {
 				resp.Body.Close()
-				return fmt.Errorf("HLS segment returned %s", resp.Status)
+				return written, &hlsRelayError{status: resp.StatusCode, err: fmt.Errorf("HLS segment returned %s", resp.Status)}
 			}
-			_, copyErr := io.Copy(writer, resp.Body)
+			n, copyErr := io.Copy(writer, resp.Body)
+			written += n
 			resp.Body.Close()
 			if copyErr != nil {
-				return copyErr
+				return written, copyErr
 			}
 			if flusher, ok := writer.(interface{ Flush() }); ok {
 				flusher.Flush()
 			}
 		}
 		if strings.Contains(string(body), "#EXT-X-ENDLIST") {
-			return nil
+			return written, nil
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return written, ctx.Err()
 		case <-time.After(1 * time.Second):
 		}
 		// Live-style playlists may advance; re-fetch the same signed URL.
@@ -448,7 +501,7 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 	var program model.EPGDetails
 	ms := start.UnixMilli()
 	if err := global.DB.Where("comm_name = ? AND start_time <= ? AND end_time > ?", info.CommName, ms, ms).Order("start_time DESC").First(&program).Error; err != nil {
-		return "", err
+		return "", &tvodError{status: http.StatusNotFound, msg: "catchup program not found"}
 	}
 	programStart := program.StartTime / 1000
 	programEnd := program.EndTime / 1000
@@ -464,7 +517,7 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 		requestedEnd = time.Now().Unix()
 	}
 	if requestedEnd <= requestedStart {
-		return "", errors.New("TVOD request range is empty")
+		return "", &tvodError{status: http.StatusRequestedRangeNotSatisfiable, msg: "TVOD request range is empty"}
 	}
 	// Historical TVOD URLs are signed by the provider. Do not reuse them:
 	// a cached URL can return 401 while a freshly issued URL is valid.
@@ -503,7 +556,7 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 				}
 				continue
 			}
-			return "", fmt.Errorf("TVOD authentication rejected with HTTP %d", resp.StatusCode)
+			return "", &tvodError{status: http.StatusUnauthorized, msg: "TVOD authentication rejected"}
 		}
 
 		var out struct {
@@ -519,7 +572,7 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 			// status=0 is a valid provider response meaning that this playbill
 			// has no archive. Re-authentication cannot create missing media.
 			global.LOG.Warn(fmt.Sprintf("TVOD URL unavailable channel=%s playbill=%s provider_status=%s", info.ChID, program.ID, out.Status))
-			return "", errors.New("TVOD program unavailable")
+			return "", &tvodError{status: http.StatusNotFound, msg: "TVOD program unavailable"}
 		}
 		return out.Data.PlayURL, nil
 	}

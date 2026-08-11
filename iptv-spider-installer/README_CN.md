@@ -63,6 +63,22 @@ systemctl restart iptv-spider
 
 配置文件位于安装目录下的 `config.yaml`。修改后重启服务即可生效。
 
+## RouterOS 回看路由
+
+回看调度和视频 CDN 必须经 IPTV 专网网关访问。以下以 `30.182.0.1` 为例，实际网关
+应使用抓包得到的 B 面网关：
+
+```routeros
+/ip route
+add dst-address=222.68.211.94/32 gateway=30.182.0.1 comment="IPTV TVOD dispatch"
+add dst-address=124.75.26.0/24 gateway=30.182.0.1 comment="IPTV TVOD CDN"
+add dst-address=124.75.27.0/24 gateway=30.182.0.1 comment="IPTV TVOD CDN"
+add dst-address=124.75.28.0/24 gateway=30.182.0.1 comment="IPTV TVOD CDN"
+```
+
+特别是 `124.75.26.0/24`：缺少这条路由时，部分节目会先报 401/404 或长时间加载，
+重试后才可能播放。安装程序不会自动修改 RouterOS 路由。
+
 ## 更新
 
 升级前备份当前配置：
