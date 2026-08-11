@@ -531,7 +531,22 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 	// Request only the range selected by TiviMate, clipped to the EPG item
 	// and to the part that has already aired.
 	form := url.Values{"action": {"getTvodPlayUrl"}, "channelID": {info.ChID}, "playbillID": {program.ID}, "startTime": {strconv.FormatInt(requestedStart, 10)}, "endTime": {strconv.FormatInt(requestedEnd, 10)}}
-	for attempt := 0; attempt < 2; attempt++ {
+	anchorIDs := []string{program.ID}
+	var previousPrograms []model.EPGDetails
+	global.DB.Where("comm_name = ? AND end_time <= ?", info.CommName, program.StartTime).
+		Order("end_time DESC").Limit(4).Find(&previousPrograms)
+	for _, previous := range previousPrograms {
+		if program.StartTime-previous.EndTime > int64(6*time.Hour/time.Millisecond) {
+			break
+		}
+		if previous.ID != "" && previous.ID != program.ID {
+			anchorIDs = append(anchorIDs, previous.ID)
+		}
+	}
+	anchorIndex := 0
+	authRefreshUsed := false
+	for attempt := 0; attempt < len(anchorIDs)+2; attempt++ {
+		form.Set("playbillID", anchorIDs[anchorIndex])
 		var authInfo model.AuthInfo
 		if err := global.DB.Order("updated_at DESC").First(&authInfo).Error; err != nil {
 			return "", err
@@ -557,7 +572,8 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 		if resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound ||
 			resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusPermanentRedirect ||
 			resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			if attempt == 0 {
+			if !authRefreshUsed {
+				authRefreshUsed = true
 				if err := refreshTvodAuth(); err != nil {
 					return "", fmt.Errorf("refresh TVOD session: %w", err)
 				}
@@ -576,9 +592,12 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 			return "", err
 		}
 		if out.Status != "1" || out.Data.PlayURL == "" {
-			// status=0 is a valid provider response meaning that this playbill
-			// has no archive. Re-authentication cannot create missing media.
-			global.LOG.Warn(fmt.Sprintf("TVOD URL unavailable channel=%s playbill=%s provider_status=%s", info.ChID, program.ID, out.Status))
+			if anchorIndex+1 < len(anchorIDs) {
+				anchorIndex++
+				global.LOG.Warn(fmt.Sprintf("catchup unavailable playbill fallback channel=%s requested=%s anchor=%s candidate=%d/%d", mixNo, start.Format(time.RFC3339), anchorIDs[anchorIndex], anchorIndex+1, len(anchorIDs)))
+				continue
+			}
+			global.LOG.Warn(fmt.Sprintf("TVOD URL unavailable channel=%s playbill=%s provider_status=%s", info.ChID, anchorIDs[anchorIndex], out.Status))
 			return "", &tvodError{status: http.StatusNotFound, msg: "TVOD program unavailable"}
 		}
 		return out.Data.PlayURL, nil
