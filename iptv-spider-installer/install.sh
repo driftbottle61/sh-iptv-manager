@@ -56,7 +56,7 @@ collect_stb_manual() {
 }
 
 collect_stb_capture() {
-  local probe output capture_ok answer
+  local probe output capture_ok answer auth_mode
   probe="$SCRIPT_DIR/bin/stb-probe-linux-amd64"
   if [ "$(uname -m)" != 'x86_64' ] || [ ! -x "$probe" ]; then
     echo '安装包中没有适用于当前 CPU 的 stb-probe 程序。'
@@ -72,17 +72,33 @@ collect_stb_capture() {
   ROUTER_HOST=$(ask 'RouterOS 地址' '192.168.100.1')
   ROUTER_PORT=$(ask 'RouterOS SSH 端口' '1314')
   ROUTER_USER=$(ask 'RouterOS SSH 用户名' 'david_ni')
-  ROUTER_KEY=$(ask 'SSH 私钥路径' '/root/.ssh/id_ed25519_routeros')
+  auth_mode=$(ask 'RouterOS 登录方式：1=用户名和密码，2=SSH 私钥' '1')
+  ROUTER_KEY=''
+  ROUTER_PASSWORD=''
+  case "$auth_mode" in
+    2)
+      ROUTER_KEY=$(ask 'SSH 私钥路径' '/root/.ssh/id_ed25519_routeros')
+      if [ ! -r "$ROUTER_KEY" ]; then
+        echo "SSH 私钥无法读取：$ROUTER_KEY"
+        return 1
+      fi
+      ;;
+    *)
+      ROUTER_PASSWORD=$(ask_secret 'RouterOS SSH 密码')
+      require_value 'RouterOS SSH 密码' "$ROUTER_PASSWORD"
+      if ! command -v sshpass >/dev/null 2>&1; then
+        echo '正在安装 RouterOS 密码登录组件...'
+        apt-get update
+        apt-get install -y --no-install-recommends sshpass
+      fi
+      export STB_PROBE_ROUTER_PASSWORD="$ROUTER_PASSWORD"
+      ;;
+  esac
   ROUTER_IFACE=$(ask '连接实体机顶盒的 RouterOS 物理端口' 'ether3_lan')
   CAPTURE_SECONDS=$(ask '抓包时长（秒）' '120')
   require_value 'RouterOS 地址' "$ROUTER_HOST"
   require_value 'RouterOS SSH 用户名' "$ROUTER_USER"
-  require_value 'SSH 私钥路径' "$ROUTER_KEY"
   require_value 'RouterOS 端口' "$ROUTER_IFACE"
-  if [ ! -r "$ROUTER_KEY" ]; then
-    echo "SSH 私钥无法读取：$ROUTER_KEY"
-    return 1
-  fi
 
   while :; do
     echo
@@ -94,10 +110,17 @@ collect_stb_capture() {
     capture_ok=0
     echo
     echo '抓包已开始，请现在立即重启实体机顶盒。'
-    "$probe" \
-      -router "$ROUTER_HOST" -router-port "$ROUTER_PORT" \
-      -router-user "$ROUTER_USER" -router-key "$ROUTER_KEY" \
-      -interface "$ROUTER_IFACE" -duration "$CAPTURE_SECONDS" >"$output" 2>&1 || capture_ok=$?
+    if [ -n "$ROUTER_PASSWORD" ]; then
+      "$probe" \
+        -router "$ROUTER_HOST" -router-port "$ROUTER_PORT" \
+        -router-user "$ROUTER_USER" -router-password-env STB_PROBE_ROUTER_PASSWORD \
+        -interface "$ROUTER_IFACE" -duration "$CAPTURE_SECONDS" >"$output" 2>&1 || capture_ok=$?
+    else
+      "$probe" \
+        -router "$ROUTER_HOST" -router-port "$ROUTER_PORT" \
+        -router-user "$ROUTER_USER" -router-key "$ROUTER_KEY" \
+        -interface "$ROUTER_IFACE" -duration "$CAPTURE_SECONDS" >"$output" 2>&1 || capture_ok=$?
+    fi
 
     echo
     echo '检测到的机顶盒数据：'
@@ -118,14 +141,65 @@ collect_stb_capture() {
 
     if [ "$capture_ok" -eq 0 ] && [ -n "$STB_UID" ] && [ -n "$STB_MAC" ] && [ -n "$STB_SN" ] && [ -n "$STB_IP" ] && [ -n "$AUTH_HOST" ]; then
       echo '抓包完成，以上数据将自动写入 config.yaml。'
+      unset STB_PROBE_ROUTER_PASSWORD ROUTER_PASSWORD
       return 0
     fi
     echo '本次抓包没有取得全部必需的认证字段。'
     answer=$(ask '输入 R 重新抓包，或输入 M 改为手工填写' 'R')
     case "$answer" in
-      [Mm]*) return 1 ;;
+      [Mm]*) unset STB_PROBE_ROUTER_PASSWORD ROUTER_PASSWORD; return 1 ;;
     esac
   done
+}
+
+show_epg_stats() {
+  local attempt count stats total_channels epg_channels programmes first_time last_time warnings log_file fetch_complete
+  echo
+  echo '正在等待首次 EPG 抓取完成（最多 3 分钟）...'
+  count=0
+  fetch_complete=0
+  log_file="$APP_DIR/latest_log"
+  for attempt in $(seq 1 36); do
+    if ! systemctl is-active --quiet iptv-spider; then
+      echo 'IPTV Spider 服务未运行，无法统计 EPG。'
+      systemctl status iptv-spider --no-pager --lines=10 || true
+      return 1
+    fi
+    count=$(MYSQL_PWD="$MYSQL_PASSWORD" mysql --batch --skip-column-names \
+      -h "$MYSQL_HOST" -u "$MYSQL_USER" "$MYSQL_DB" \
+      -e 'SELECT COUNT(*) FROM epg_details;' 2>/dev/null || printf '0')
+    if [[ "$count" =~ ^[0-9]+$ ]] && [ "$count" -gt 0 ] && [ -f "$log_file" ] && grep -q '更新节目信息列表完成' "$log_file"; then
+      fetch_complete=1
+      break
+    fi
+    sleep 5
+  done
+  if ! [[ "$count" =~ ^[0-9]+$ ]] || [ "$count" -eq 0 ]; then
+    echo '等待超时：数据库中尚无 EPG 节目，请检查服务日志：'
+    echo "  journalctl -u iptv-spider -n 100 --no-pager"
+    return 1
+  fi
+	if [ "$fetch_complete" -eq 0 ]; then
+		echo '等待超时：EPG 抓取仍在进行，以下显示当前统计。'
+	fi
+
+  total_channels=$(MYSQL_PWD="$MYSQL_PASSWORD" mysql --batch --skip-column-names \
+    -h "$MYSQL_HOST" -u "$MYSQL_USER" "$MYSQL_DB" \
+    -e 'SELECT COUNT(*) FROM channel_infos;' 2>/dev/null || printf '0')
+  stats=$(MYSQL_PWD="$MYSQL_PASSWORD" mysql --batch --skip-column-names \
+    -h "$MYSQL_HOST" -u "$MYSQL_USER" "$MYSQL_DB" \
+    -e "SELECT COUNT(DISTINCT comm_name), COUNT(*), DATE_FORMAT(FROM_UNIXTIME(MIN(start_time)/1000),'%Y-%m-%d %H:%i'), DATE_FORMAT(FROM_UNIXTIME(MAX(end_time)/1000),'%Y-%m-%d %H:%i') FROM epg_details;" 2>/dev/null || true)
+  IFS=$'\t' read -r epg_channels programmes first_time last_time <<< "$stats"
+  warnings=0
+  if [ -f "$log_file" ]; then
+    warnings=$(grep -c 'FetchChannelProg Err' "$log_file" 2>/dev/null || true)
+  fi
+  echo 'EPG 抓取统计：'
+  echo "  频道记录数：${total_channels:-0}"
+  echo "  已有节目单频道：${epg_channels:-0}"
+  echo "  节目总数：${programmes:-0}"
+  echo "  覆盖时间：${first_time:-未知} 至 ${last_time:-未知}"
+  echo "  本次日志抓取警告：${warnings:-0}"
 }
 
 valid_ipv4() {
@@ -295,6 +369,7 @@ sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > /etc
 systemctl daemon-reload
 systemctl enable --now iptv-spider
 configure_iptv_interface
+show_epg_stats || true
 
 echo
 echo '安装完成。'

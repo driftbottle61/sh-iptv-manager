@@ -38,7 +38,8 @@ cd sh-iptv-spider-installer
 sudo ./install.sh
 ```
 
-安装程序会交互填写抓取和回放配置，并内置频道 Logo。发行包 SHA256：
+安装程序支持使用 RouterOS 用户名/密码或 SSH 私钥抓取机顶盒信息，启动后显示 EPG
+抓取统计，并内置频道 Logo。发行包 SHA256：
 `a7cba83f740840d804a612261128af9928e3f4e9b32d1805948a70d4468921d6`。
 
 也可使用一键安装脚本：

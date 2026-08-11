@@ -24,9 +24,9 @@ import (
 )
 
 type capture struct {
-	router, user, key, iface, mac, ip, file string
-	port, vlan, seconds                     int
-	keep                                    bool
+	router, user, key, password, iface, mac, ip, file string
+	port, vlan, seconds                               int
+	keep                                              bool
 }
 
 const spiderAuthHost = "222.68.208.73:7001"
@@ -37,6 +37,7 @@ func main() {
 	flag.IntVar(&c.port, "router-port", 1314, "RouterOS SSH port")
 	flag.StringVar(&c.user, "router-user", "david_ni", "RouterOS SSH user")
 	flag.StringVar(&c.key, "router-key", "~/.ssh/id_ed25519_sbx_github", "SSH private key")
+	passwordEnv := flag.String("router-password-env", "", "environment variable containing the RouterOS SSH password")
 	flag.StringVar(&c.iface, "interface", "ether3_lan", "RouterOS physical IPTV port")
 	flag.IntVar(&c.vlan, "vlan", 0, "optional 802.1Q VLAN filter; use 85 only on a physical trunk")
 	flag.StringVar(&c.mac, "mac", "", "optional STB MAC filter")
@@ -45,6 +46,12 @@ func main() {
 	flag.StringVar(&c.file, "output", "", "local pcap path (temporary by default)")
 	flag.BoolVar(&c.keep, "keep-pcap", false, "do not delete the downloaded pcap")
 	flag.Parse()
+	if *passwordEnv != "" {
+		c.password = os.Getenv(*passwordEnv)
+		if c.password == "" {
+			fatal("RouterOS 密码环境变量 %s 为空", *passwordEnv)
+		}
+	}
 	if c.file != "" {
 		values, err := parsePCAP(c.file)
 		if err != nil {
@@ -60,9 +67,13 @@ func main() {
 	if c.vlan < 0 || c.vlan > 4094 || (c.mac != "" && !validMAC(c.mac)) || (c.ip != "" && net.ParseIP(c.ip) == nil) {
 		fatal("VLAN、MAC 或 IP 参数无效")
 	}
-	c.key = expandHome(c.key)
-	if _, err := os.Stat(c.key); err != nil {
-		fatal("SSH 私钥不可用：%v", err)
+	if c.password == "" {
+		c.key = expandHome(c.key)
+		if _, err := os.Stat(c.key); err != nil {
+			fatal("SSH 私钥不可用：%v", err)
+		}
+	} else if _, err := exec.LookPath("sshpass"); err != nil {
+		fatal("密码登录需要安装 sshpass")
 	}
 
 	name := fmt.Sprintf("stb-probe-%d.pcap", time.Now().UnixNano())
@@ -113,7 +124,7 @@ func remoteCapture(ctx context.Context, c capture, name string) error {
 		restore = append(restore, fmt.Sprintf("%s=$p%d", f, i))
 	}
 	script := fmt.Sprintf(":if ([/tool/sniffer get running]) do={:error \"sniffer is already running\"}; :local bp [/interface/bridge/port find where interface=%s]; :local hw \"\"; :if ([:len $bp] > 0) do={:set hw [/interface/bridge/port get $bp hw]; /interface/bridge/port set $bp hw=no}; %s; :do {/tool/sniffer set %s; /tool/sniffer start; :delay %ds} on-error={}; /tool/sniffer stop; :delay 2s; /tool/sniffer set %s; :if ([:len $bp] > 0) do={/interface/bridge/port set $bp hw=$hw}; :put \"stb-probe capture completed\"", rosQuote(c.iface), strings.Join(vars, "; "), set, c.seconds, strings.Join(restore, " "))
-	cmd := exec.CommandContext(ctx, "ssh", "-i", c.key, "-p", fmt.Sprint(c.port), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10", fmt.Sprintf("%s@%s", c.user, c.router), script)
+	cmd := sshExec(ctx, c, false, script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
@@ -122,7 +133,7 @@ func remoteCapture(ctx context.Context, c capture, name string) error {
 }
 
 func download(ctx context.Context, c capture, remote, local string) error {
-	cmd := exec.CommandContext(ctx, "scp", "-i", c.key, "-P", fmt.Sprint(c.port), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10", fmt.Sprintf("%s@%s:%s", c.user, c.router, remote), local)
+	cmd := sshExec(ctx, c, true, fmt.Sprintf("%s@%s:%s", c.user, c.router, remote), local)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
@@ -131,7 +142,33 @@ func download(ctx context.Context, c capture, remote, local string) error {
 }
 
 func remoteDelete(ctx context.Context, c capture, name string) {
-	exec.CommandContext(ctx, "ssh", "-i", c.key, "-p", fmt.Sprint(c.port), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", fmt.Sprintf("%s@%s", c.user, c.router), fmt.Sprintf("/file/remove [find name=%s]", rosQuote(name))).Run()
+	sshExec(ctx, c, false, fmt.Sprintf("/file/remove [find name=%s]", rosQuote(name))).Run()
+}
+
+func sshExec(ctx context.Context, c capture, scp bool, trailing ...string) *exec.Cmd {
+	program := "ssh"
+	portFlag := "-p"
+	args := []string{}
+	if scp {
+		program = "scp"
+		portFlag = "-P"
+	}
+	if c.password != "" {
+		args = append(args, "-e", program, portFlag, fmt.Sprint(c.port), "-o", "BatchMode=no", "-o", "PreferredAuthentications=password,keyboard-interactive", "-o", "PubkeyAuthentication=no", "-o", "KbdInteractiveAuthentication=yes")
+		program = "sshpass"
+	} else {
+		args = append(args, "-i", c.key, portFlag, fmt.Sprint(c.port), "-o", "BatchMode=yes")
+	}
+	args = append(args, "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10")
+	if !scp {
+		args = append(args, fmt.Sprintf("%s@%s", c.user, c.router))
+	}
+	args = append(args, trailing...)
+	cmd := exec.CommandContext(ctx, program, args...)
+	if c.password != "" {
+		cmd.Env = append(os.Environ(), "SSHPASS="+c.password)
+	}
+	return cmd
 }
 
 func parsePCAP(path string) (map[string]string, error) {
