@@ -10,7 +10,13 @@ import (
 	"iptv-spider-sh/model"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+)
+
+var (
+	channelListFetchMu sync.Mutex
+	channelProgFetchMu sync.Mutex
 )
 
 func (c *Client) checkSessionState() error {
@@ -40,6 +46,9 @@ func (c *Client) checkSessionState() error {
 }
 
 func (c *Client) FetchChannelList() {
+	channelListFetchMu.Lock()
+	defer channelListFetchMu.Unlock()
+
 	err := c.checkSessionState()
 	if err != nil {
 		global.LOG.Error("FetchChannelList checkSessionState Err: " + err.Error())
@@ -103,6 +112,9 @@ func (c *Client) FetchChannelList() {
 }
 
 func (c *Client) FetchChannelProg() {
+	channelProgFetchMu.Lock()
+	defer channelProgFetchMu.Unlock()
+
 	err := c.checkSessionState()
 	if err != nil {
 		global.LOG.Error("FetchChannelProg checkSessionState Err: " + err.Error())
