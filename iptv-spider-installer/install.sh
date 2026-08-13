@@ -79,6 +79,7 @@ install_package_files() {
   fi
   install -m 0755 "$APP_DIR/uninstall.sh" /usr/local/sbin/iptv-spider-uninstall
   install -m 0755 "$APP_DIR/status.sh" /usr/local/sbin/iptv-spider-status
+  install -m 0755 "$APP_DIR/manage.sh" /usr/local/sbin/iptv-spider
   sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > /etc/systemd/system/iptv-spider.service
   systemctl daemon-reload
 }
@@ -483,5 +484,6 @@ echo '安装完成。'
 echo "节目源 M3U：http://$LAN_IP:$PORT/tv.m3u"
 echo "节目单 EPG：http://$LAN_IP:$PORT/api/epg?daysAgo=$CATCHUP_DAYS"
 echo "Logo 示例：http://$LAN_IP:$PORT/iptvlogos/CGTN.png"
+echo '日常管理：iptv-spider'
 echo
 /usr/local/sbin/iptv-spider-status || true

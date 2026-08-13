@@ -109,6 +109,15 @@ http://<server>:<port>/iptvlogos/CGTN.png
 
 ## 服务管理
 
+使用中文日常管理菜单：
+
+```bash
+iptv-spider
+```
+
+菜单提供状态显示、手动抓取频道和 EPG、重启服务以及交互式卸载。选择 `0` 只退出
+菜单，不会停止 IPTV Spider 服务。
+
 ```bash
 systemctl status iptv-spider
 journalctl -u iptv-spider -f
