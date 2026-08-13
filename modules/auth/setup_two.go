@@ -75,10 +75,25 @@ func (c *Client) epgPortalAuth(doc *goquery.Document) (*goquery.Document, error)
 	//jsSetConfig('EPGDefaultChannelNo','0');
 
 	infoMap := c.parseEpgAuthInfo(respDoc)
-	c.JSESSIONID = infoMap["SessionID"]
-	c.EPGHostUrl = fmt.Sprintf("http://%s/iptvepg/%s", infoMap["IpPort"], infoMap["framecode"])
+	sessionID, ipPort, frameCode, err := validateEpgAuthInfo(infoMap)
+	if err != nil {
+		return nil, err
+	}
+	c.JSESSIONID = sessionID
+	c.EPGHostUrl = fmt.Sprintf("http://%s/iptvepg/%s", ipPort, frameCode)
 
 	return respDoc, nil
+}
+
+func validateEpgAuthInfo(infoMap map[string]string) (string, string, string, error) {
+	sessionID := strings.TrimSpace(infoMap["SessionID"])
+	ipPort := strings.TrimSpace(infoMap["IpPort"])
+	frameCode := strings.TrimSpace(infoMap["framecode"])
+	if sessionID == "" || ipPort == "" || frameCode == "" {
+		return "", "", "", fmt.Errorf("EPG authentication response incomplete: SessionID=%t IpPort=%t framecode=%t",
+			sessionID != "", ipPort != "", frameCode != "")
+	}
+	return sessionID, ipPort, frameCode, nil
 }
 
 func (c *Client) parseEpgAuthInfo(doc *goquery.Document) map[string]string {
