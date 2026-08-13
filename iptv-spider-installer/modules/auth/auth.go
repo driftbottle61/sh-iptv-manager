@@ -82,11 +82,18 @@ func (c *Client) authSetupTwo() (*goquery.Document, error) {
 
 func (c *Client) StartAuth() error {
 	global.LOG.Info("开始认证流程")
+	previousAuthInfo := c.AuthInfo
 	c.authSetupOne()
 	if c.htmlDocTemp == nil {
+		c.AuthInfo = previousAuthInfo
+		c.updateCookies()
 		return errors.New("认证流程一失败：认证服务器页面无效或不可达")
 	}
 	_, err := c.authSetupTwo()
+	if err != nil {
+		c.AuthInfo = previousAuthInfo
+		c.updateCookies()
+	}
 	return err
 }
 
