@@ -21,6 +21,8 @@ grep -q '手动抓取' "$ROOT/manage.sh"
 grep -q '服务保持运行' "$ROOT/manage.sh"
 grep -q '频道信息列表更新完成' "$ROOT/manage.sh"
 grep -q '更新节目信息列表完成' "$ROOT/manage.sh"
+grep -q 'tail -c' "$ROOT/manage.sh"
+grep -q 'stat -Lc %s' "$ROOT/manage.sh"
 grep -q '"/tv.m3u"' "$ROOT/router/router.go"
 grep -q '"/tv-direct.m3u"' "$ROOT/router/router.go"
 

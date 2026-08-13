@@ -26,9 +26,15 @@ config_value() {
 }
 
 wait_for_log() {
-  local pattern=$1 since=$2 title=$3 attempt
+  local pattern=$1 since=$2 offset=$3 title=$4 attempt current_size
   echo "正在等待$title完成（最多 3 分钟）..."
   for attempt in $(seq 1 90); do
+    current_size=$(stat -Lc %s "$APP_DIR/latest_log" 2>/dev/null || printf '0')
+    if [ "$current_size" -gt "$offset" ] && \
+       tail -c "+$((offset + 1))" "$APP_DIR/latest_log" 2>/dev/null | grep -q "$pattern"; then
+      echo "$title已完成。"
+      return 0
+    fi
     if journalctl -u "$SERVICE" --since "@$since" --no-pager 2>/dev/null | grep -q "$pattern"; then
       echo "$title已完成。"
       return 0
@@ -41,7 +47,7 @@ wait_for_log() {
 }
 
 manual_fetch() {
-  local addr port base started response
+  local addr port base started response log_offset
   if ! systemctl is-active --quiet "$SERVICE"; then
     echo '服务未运行，不能抓取。请先选择 3 重启服务。'
     return 1
@@ -52,21 +58,23 @@ manual_fetch() {
   base="http://127.0.0.1:$port/api/run"
 
   echo '开始手动刷新频道和 EPG 数据。'
+  log_offset=$(stat -Lc %s "$APP_DIR/latest_log" 2>/dev/null || printf '0')
   started=$(date +%s)
   response=$(curl -fsS --connect-timeout 5 --max-time 15 "$base?task=update-chi" 2>/dev/null || true)
   if [ "$response" != 'OK' ]; then
     echo '频道抓取任务启动失败。'
     return 1
   fi
-  wait_for_log '频道信息列表更新完成' "$started" '频道抓取' || true
+  wait_for_log '频道信息列表更新完成' "$started" "$log_offset" '频道抓取' || true
 
+  log_offset=$(stat -Lc %s "$APP_DIR/latest_log" 2>/dev/null || printf '0')
   started=$(date +%s)
   response=$(curl -fsS --connect-timeout 5 --max-time 15 "$base?task=update-epg" 2>/dev/null || true)
   if [ "$response" != 'OK' ]; then
     echo 'EPG 抓取任务启动失败。'
     return 1
   fi
-  wait_for_log '更新节目信息列表完成' "$started" 'EPG 抓取' || true
+  wait_for_log '更新节目信息列表完成' "$started" "$log_offset" 'EPG 抓取' || true
   echo
   "$STATUS_CMD" --skip-replay || true
 }
