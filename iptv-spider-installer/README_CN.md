@@ -52,12 +52,12 @@ sudo ./install.sh
 安装完成后会显示实际地址。常用接口：
 
 ```text
-http://<server>:<port>/tv-direct.m3u
+http://<server>:<port>/tv.m3u
 http://<server>:<port>/api/epg?daysAgo=7
 http://<server>:<port>/iptvlogos/CGTN.png
 ```
 
-`tv-direct.m3u` 使用配置的 udpxy/msd_lite 把 IPTV 多播转换为 HTTP 单播，并附加 TVOD 回看属性。Logo 与频道分组来自安装包中的离线参考映射，不依赖外部 Logo 主机。
+`tv.m3u` 使用配置的 udpxy/msd_lite 把 IPTV 多播转换为 HTTP 单播，并附加 TVOD 回看属性。Logo 与频道分组来自安装包中的离线参考映射，不依赖外部 Logo 主机。
 
 ## 服务管理
 

@@ -373,6 +373,6 @@ show_epg_stats || true
 
 echo
 echo '安装完成。'
-echo "节目源 M3U：http://$LAN_IP:$PORT/tv-direct.m3u"
+echo "节目源 M3U：http://$LAN_IP:$PORT/tv.m3u"
 echo "节目单 EPG：http://$LAN_IP:$PORT/api/epg?daysAgo=$CATCHUP_DAYS"
 echo "Logo 示例：http://$LAN_IP:$PORT/iptvlogos/CGTN.png"
