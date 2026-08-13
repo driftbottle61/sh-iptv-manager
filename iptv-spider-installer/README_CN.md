@@ -117,6 +117,32 @@ systemctl restart iptv-spider
 
 配置文件位于安装目录下的 `config.yaml`。修改后重启服务即可生效。
 
+## 覆盖升级
+
+在已经安装 IPTV Spider 的服务器上运行新版一键安装命令，安装器检测到现有
+`config.yaml` 后会提供覆盖升级选项。覆盖升级会：
+
+- 保留现有 `config.yaml`、数据库内容和 `eth1` IPTV 专网配置；
+- 更新主程序、抓包工具、Logo、频道映射、帮助文件和 systemd 单元；
+- 在安装目录旁创建带时间戳的完整备份；
+- 新版本无法稳定启动时自动恢复旧版本。
+
+覆盖升级不会重新抓取机顶盒信息，也不会要求重新输入数据库密码。确认新版本稳定后，
+可手工删除安装目录旁的 `upgrade-backup` 备份。
+
+## 卸载
+
+安装完成后可以执行：
+
+```bash
+iptv-spider-uninstall
+```
+
+卸载程序默认只停止并删除 IPTV Spider 服务和程序，保留配置、日志、数据库及
+MariaDB 软件包。交互过程中可以单独选择是否删除 IPTV 数据库和用户、是否卸载
+MariaDB。若网络配置中存在安装器创建的 `IPTV-SPIDER ETH1` 标记段，卸载时只移除
+该段且不会重启网络。选择保留配置时，文件会备份到 `/root/iptv-spider-uninstall-backup-*`。
+
 ## RouterOS 回看路由
 
 回看调度和视频 CDN 必须经 IPTV 专网网关访问。以下以 `30.182.0.1` 为例，实际网关

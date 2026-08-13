@@ -1,10 +1,25 @@
 package utils
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"testing"
 )
+
+func TestAESForNodejs_RoundTripLengths(t *testing.T) {
+	aes := NewAESForNodejs([]byte("123456"))
+	for length := 0; length <= 256; length++ {
+		plain := bytes.Repeat([]byte{'x'}, length)
+		cipherText := aes.Encrypt(plain)
+		if len(cipherText)%16 != 0 {
+			t.Fatalf("length %d produced a non-block-aligned ciphertext", length)
+		}
+		if got := aes.Decrypt(cipherText); !bytes.Equal(got, plain) {
+			t.Fatalf("round trip failed for length %d", length)
+		}
+	}
+}
 
 func TestAESForNodejs_Encrypt(t *testing.T) {
 	data := "data12345"

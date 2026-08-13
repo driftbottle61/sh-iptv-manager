@@ -31,11 +31,13 @@ func (a *AESForNodejs) Decrypt(data []byte) []byte {
 }
 
 func (a *AESForNodejs) Encrypt(data []byte) []byte {
-	plain := PKCS5Padding(data)
+	// AES uses a 16-byte block. Provider documentation calls this PKCS5Padding,
+	// but interoperable AES implementations pad to the cipher block size.
+	plain := PKCS7Padding(data)
 	cipher, _ := aes.NewCipher(a.key[:])
 	encrypted := make([]byte, len(plain))
 	// 分组分块加密
-	for bs, be := 0, cipher.BlockSize(); bs <= len(data); bs, be = bs+cipher.BlockSize(), be+cipher.BlockSize() {
+	for bs, be := 0, cipher.BlockSize(); bs < len(plain); bs, be = bs+cipher.BlockSize(), be+cipher.BlockSize() {
 		cipher.Encrypt(encrypted[bs:be], plain[bs:be])
 	}
 

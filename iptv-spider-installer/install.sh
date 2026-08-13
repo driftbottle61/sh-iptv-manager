@@ -39,9 +39,91 @@ require_value() {
   fi
 }
 
+validate_install_dir() {
+  case "$1" in
+    /*) ;;
+    *) echo '安装目录必须是绝对路径。'; exit 1 ;;
+  esac
+  case "$1" in
+    /|/root|/opt|/usr|/usr/local|/etc|/var|/home)
+      echo "安装目录范围过大，拒绝使用：$1"
+      exit 1
+      ;;
+  esac
+}
+
 yaml_value() {
   local key=$1 file=$2
   sed -n "s/^[[:space:]]*${key}:[[:space:]]*\"\(.*\)\"[[:space:]]*$/\1/p" "$file" | tail -n 1
+}
+
+config_value() {
+  local key=$1 file=$2
+  sed -n "s/^[[:space:]]*${key}:[[:space:]]*'\([^']*\)'[[:space:]]*$/\1/p" "$file" | tail -n 1
+}
+
+sql_escape() {
+  printf '%s' "$1" | sed "s/\\\\/\\\\\\\\/g; s/'/''/g"
+}
+
+install_package_files() {
+  install -d -m 0755 "$APP_DIR"
+  tar -C "$SCRIPT_DIR" --exclude='./config.yaml' --exclude='./.git' -cf - . | tar -C "$APP_DIR" -xf -
+  if [ -x "$APP_DIR/bin/iptv-spider-linux-amd64" ] && [ "$(uname -m)" = 'x86_64' ]; then
+    install -m 0755 "$APP_DIR/bin/iptv-spider-linux-amd64" "$APP_DIR/iptv-spider"
+  elif command -v go >/dev/null 2>&1; then
+    (cd "$APP_DIR" && go build -buildvcs=false -o iptv-spider .)
+  else
+    echo '安装包中没有兼容的程序，系统也未安装 Go，无法继续。'
+    return 1
+  fi
+  install -m 0755 "$APP_DIR/uninstall.sh" /usr/local/sbin/iptv-spider-uninstall
+  sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > /etc/systemd/system/iptv-spider.service
+  systemctl daemon-reload
+}
+
+upgrade_existing() {
+  local stamp backup
+  stamp=$(date +%Y%m%d%H%M%S)
+  backup="${APP_DIR}.upgrade-backup.${stamp}"
+  echo "正在备份现有安装到 $backup ..."
+  cp -a "$APP_DIR" "$backup"
+  systemctl stop iptv-spider.service 2>/dev/null || true
+  if ! install_package_files; then
+    rm -rf "$APP_DIR"
+    mv "$backup" "$APP_DIR"
+    sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > /etc/systemd/system/iptv-spider.service
+    systemctl daemon-reload
+    systemctl start iptv-spider.service 2>/dev/null || true
+    echo '升级文件安装失败，已恢复原版本。'
+    return 1
+  fi
+  chmod 600 "$APP_DIR/config.yaml"
+  systemctl enable iptv-spider.service >/dev/null
+  if ! systemctl restart iptv-spider.service || ! timeout 30 bash -c '
+    stable=0
+    while [ "$stable" -lt 5 ]; do
+      if systemctl is-active --quiet iptv-spider.service; then
+        stable=$((stable + 1))
+      else
+        stable=0
+      fi
+      sleep 1
+    done
+  '; then
+    echo '新版本启动失败，正在回滚...'
+    systemctl stop iptv-spider.service 2>/dev/null || true
+    rm -rf "$APP_DIR"
+    mv "$backup" "$APP_DIR"
+    sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > /etc/systemd/system/iptv-spider.service
+    systemctl daemon-reload
+    systemctl start iptv-spider.service
+    echo '已恢复原版本。'
+    return 1
+  fi
+  echo '覆盖升级完成。原 config.yaml、数据库和 IPTV 网络配置均已保留。'
+  echo "升级前完整备份：$backup"
+  echo '确认新版本稳定后可手工删除该备份目录。'
 }
 
 collect_stb_manual() {
@@ -275,7 +357,29 @@ echo '上海电信 IPTV Spider 安装程序'
 echo '生成的配置包含 IPTV 认证信息；本安装程序不会上传这些信息。'
 
 APP_DIR=$(ask '安装目录' "$DEFAULT_DIR")
+validate_install_dir "$APP_DIR"
+if [ -f "$APP_DIR/config.yaml" ]; then
+  echo
+  echo "检测到现有安装：$APP_DIR"
+  EXISTING_ACTION=$(ask '输入 U 覆盖升级并保留配置，输入 Q 退出' 'U')
+  case "$EXISTING_ACTION" in
+    [Uu]*)
+      export DEBIAN_FRONTEND=noninteractive
+      if ! command -v curl >/dev/null 2>&1 || ! command -v ssh >/dev/null 2>&1 || ! command -v mysql >/dev/null 2>&1; then
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl openssh-client mariadb-client
+      fi
+      upgrade_existing
+      exit $?
+      ;;
+    *) echo '安装已取消。'; exit 0 ;;
+  esac
+fi
 PORT=$(ask '服务端口' '8888')
+if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+  echo '服务端口必须是 1 到 65535 之间的整数。'
+  exit 1
+fi
 LAN_IP=$(ask '用于节目源、EPG 和 Logo 的服务器 LAN 地址')
 require_value '服务器 LAN 地址' "$LAN_IP"
 
@@ -298,6 +402,10 @@ echo '直播与回放配置'
 SOURCE_M3U=$(ask '已有直播 M3U 地址（可留空，留空则使用项目自身输出）')
 UDPXY=$(ask 'udpxy/msd_lite 地址（可留空，格式：主机:端口）')
 CATCHUP_DAYS=$(ask '回放天数' '7')
+if ! [[ "$CATCHUP_DAYS" =~ ^[0-9]+$ ]] || [ "$CATCHUP_DAYS" -lt 1 ] || [ "$CATCHUP_DAYS" -gt 7 ]; then
+  echo '回放天数必须是 1 到 7 之间的整数。'
+  exit 1
+fi
 RELAY_CLIENTS=$(ask '需要中继的客户端地址（可留空，多个地址用逗号分隔）')
 
 echo
@@ -307,9 +415,12 @@ MYSQL_DB=$(ask '数据库名称' 'iptv')
 MYSQL_USER=$(ask '数据库用户名' 'iptv')
 MYSQL_PASSWORD=$(ask_secret '数据库密码')
 require_value '数据库密码' "$MYSQL_PASSWORD"
-
-if [ -d "$APP_DIR" ] && [ -f "$APP_DIR/config.yaml" ]; then
-  echo "$APP_DIR 已存在 config.yaml。为保护现有配置，安装已停止。"
+if ! [[ "$MYSQL_DB" =~ ^[A-Za-z0-9_]+$ ]]; then
+  echo '数据库名称只能包含字母、数字和下划线。'
+  exit 1
+fi
+if ! [[ "$MYSQL_USER" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+  echo '数据库用户名只能包含字母、数字、下划线、点和连字符。'
   exit 1
 fi
 
@@ -318,23 +429,18 @@ apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl openssh-client mariadb-client mariadb-server
 
 if [ "$MYSQL_HOST" = '127.0.0.1' ] || [ "$MYSQL_HOST" = 'localhost' ]; then
+  mysql_user_sql=$(sql_escape "$MYSQL_USER")
+  mysql_password_sql=$(sql_escape "$MYSQL_PASSWORD")
   mariadb -e "CREATE DATABASE IF NOT EXISTS \`$MYSQL_DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-  mariadb -e "CREATE USER IF NOT EXISTS '$MYSQL_USER'@'127.0.0.1' IDENTIFIED BY '$MYSQL_PASSWORD';"
-  mariadb -e "ALTER USER '$MYSQL_USER'@'127.0.0.1' IDENTIFIED BY '$MYSQL_PASSWORD';"
-  mariadb -e "GRANT ALL PRIVILEGES ON \`$MYSQL_DB\`.* TO '$MYSQL_USER'@'127.0.0.1'; FLUSH PRIVILEGES;"
+  for mysql_account_host in localhost 127.0.0.1 %; do
+    mariadb -e "CREATE USER IF NOT EXISTS '$mysql_user_sql'@'$mysql_account_host' IDENTIFIED BY '$mysql_password_sql';"
+    mariadb -e "ALTER USER '$mysql_user_sql'@'$mysql_account_host' IDENTIFIED BY '$mysql_password_sql';"
+    mariadb -e "GRANT ALL PRIVILEGES ON \`$MYSQL_DB\`.* TO '$mysql_user_sql'@'$mysql_account_host';"
+  done
+  mariadb -e 'FLUSH PRIVILEGES;'
 fi
 
-install -d -m 0755 "$APP_DIR"
-tar -C "$SCRIPT_DIR" --exclude='./config.yaml' --exclude='./.git' -cf - . | tar -C "$APP_DIR" -xf -
-
-if [ -x "$APP_DIR/bin/iptv-spider-linux-amd64" ] && [ "$(uname -m)" = 'x86_64' ]; then
-  install -m 0755 "$APP_DIR/bin/iptv-spider-linux-amd64" "$APP_DIR/iptv-spider"
-elif command -v go >/dev/null 2>&1; then
-  (cd "$APP_DIR" && go build -o iptv-spider .)
-else
-  echo '安装包中没有兼容的程序，系统也未安装 Go，无法继续。'
-  exit 1
-fi
+install_package_files
 
 relay_yaml='[]'
 if [ -n "$RELAY_CLIENTS" ]; then
@@ -365,8 +471,6 @@ fi
 } > "$APP_DIR/config.yaml"
 chmod 600 "$APP_DIR/config.yaml"
 
-sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > /etc/systemd/system/iptv-spider.service
-systemctl daemon-reload
 systemctl enable --now iptv-spider
 configure_iptv_interface
 show_epg_stats || true
