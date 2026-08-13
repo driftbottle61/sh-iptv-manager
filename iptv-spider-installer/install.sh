@@ -78,6 +78,7 @@ install_package_files() {
     return 1
   fi
   install -m 0755 "$APP_DIR/uninstall.sh" /usr/local/sbin/iptv-spider-uninstall
+  install -m 0755 "$APP_DIR/status.sh" /usr/local/sbin/iptv-spider-status
   sed "s|__INSTALL_DIR__|$APP_DIR|g" "$APP_DIR/systemd/iptv-spider.service" > /etc/systemd/system/iptv-spider.service
   systemctl daemon-reload
 }
@@ -124,6 +125,8 @@ upgrade_existing() {
   echo '覆盖升级完成。原 config.yaml、数据库和 IPTV 网络配置均已保留。'
   echo "升级前完整备份：$backup"
   echo '确认新版本稳定后可手工删除该备份目录。'
+  echo
+  /usr/local/sbin/iptv-spider-status || true
 }
 
 collect_stb_manual() {
@@ -480,3 +483,5 @@ echo '安装完成。'
 echo "节目源 M3U：http://$LAN_IP:$PORT/tv.m3u"
 echo "节目单 EPG：http://$LAN_IP:$PORT/api/epg?daysAgo=$CATCHUP_DAYS"
 echo "Logo 示例：http://$LAN_IP:$PORT/iptvlogos/CGTN.png"
+echo
+/usr/local/sbin/iptv-spider-status || true

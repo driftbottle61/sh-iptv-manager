@@ -117,6 +117,22 @@ systemctl restart iptv-spider
 
 配置文件位于安装目录下的 `config.yaml`。修改后重启服务即可生效。
 
+日常检查可以执行：
+
+```bash
+iptv-spider-status
+```
+
+该命令会显示软件版本、systemd 状态、监听端口、`eth1` 专网地址、M3U/EPG/Logo
+接口状态、数据库频道与节目数量、EPG 覆盖时间、最近两小时的错误日志，并动态选择
+一个已经播完的节目进行 5 秒回放取流测试。只查看状态、不测试回放时执行：
+
+```bash
+iptv-spider-status --skip-replay
+```
+
+全新安装和覆盖升级成功后，安装器也会自动执行一次完整状态检查。
+
 ## 覆盖升级
 
 在已经安装 IPTV Spider 的服务器上运行新版一键安装命令，安装器检测到现有

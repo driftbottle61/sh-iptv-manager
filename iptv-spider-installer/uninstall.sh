@@ -78,6 +78,7 @@ fi
 
 rm -rf "$APP_DIR"
 rm -f /usr/local/sbin/iptv-spider-uninstall
+rm -f /usr/local/sbin/iptv-spider-status
 
 if [[ "$remove_packages" =~ ^([Yy][Ee][Ss])$ ]]; then
   apt-get purge -y mariadb-server mariadb-client
