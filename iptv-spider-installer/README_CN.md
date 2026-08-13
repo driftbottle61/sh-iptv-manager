@@ -27,6 +27,54 @@ TM 或后端 7001 地址。
 `ether3_lan`，默认不限制 VLAN，因此可以同时识别未打标签流量、VLAN 51 和 VLAN 85。
 机顶盒认证参数属于账号凭据，请勿公开发布。
 
+## 在 Proxmox VE 创建 CT
+
+推荐使用 Debian 12 非特权 CT。下面的模板以 CT 编号 `116`、管理地址
+`192.168.100.90/24`、网关 `192.168.100.1` 和存储 `local-lvm` 为例：
+
+```bash
+pct create 116 local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst \
+  --arch amd64 \
+  --cores 2 \
+  --memory 2048 \
+  --swap 512 \
+  --hostname iptv-spider \
+  --rootfs local-lvm:10 \
+  --unprivileged 1 \
+  --features nesting=1 \
+  --onboot 1 \
+  --net0 name=eth0,bridge=vmbr0,gw=192.168.100.1,ip=192.168.100.90/24,type=veth \
+  --net1 name=eth1,bridge=vmbr0,tag=85,type=veth \
+  --net2 name=eth2,bridge=vmbr0,tag=51,type=veth
+```
+
+执行前先确认 CT 编号未被占用，并检查模板文件名：
+
+```bash
+pct status 116
+pveam list local | grep debian-12
+```
+
+如果本机模板名称不同，请替换 `local:vztmpl/...`；如果使用其他存储，请同时替换
+`local-lvm:10`。`vmbr0` 及其上联交换链路必须允许所需 VLAN 通过。
+
+三张网卡的用途如下：
+
+- `eth0`：LAN 管理网卡，固定地址为 `192.168.100.90/24`，安装、SSH、M3U、EPG 和 Logo 服务均通过它访问。
+- `eth1`：VLAN 85 IPTV 专网网卡。创建时无需填写 IP；自动抓包安装流程会在最后提示关闭实体机顶盒，并把抓到的 B 面专网 IP 配置到该接口。
+- `eth2`：VLAN 51 预留网卡，用于需要 A 面或特定认证网络的环境。当前 IPTV Spider 的常规安装和运行不依赖它；确定不用时可以省略 `--net2`。
+
+创建后启动、进入和查看配置：
+
+```bash
+pct start 116
+pct enter 116
+pct config 116
+```
+
+进入 CT 后确认 `eth0` 能访问 LAN 和互联网，再运行一键安装程序。不要在 PVE
+宿主机或 CT 内同时给 `eth1` 配置与仍在线机顶盒相同的专网 IP，以免发生地址冲突。
+
 ## 安装
 
 在 Debian 12、Ubuntu 22.04 或更新版本的服务器上解压发行包后执行：

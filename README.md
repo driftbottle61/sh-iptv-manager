@@ -40,7 +40,7 @@ sudo ./install.sh
 
 安装程序支持使用 RouterOS 用户名/密码或 SSH 私钥抓取机顶盒信息，启动后显示 EPG
 抓取统计，并内置频道 Logo。发行包 SHA256：
-`fe19605671eef2c61812cff05a6b8df4d76851a21f90514f139f2ece878cb185`。
+`d2bc3465c48c443619dc93698cf7ef349fadb3df86990682324b6598eac6bd64`。
 
 也可使用一键安装脚本：
 
