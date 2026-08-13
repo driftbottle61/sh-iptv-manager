@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.2.8"
+VERSION="1.2.9"
 REPOSITORY="driftbottle61/sh-iptv-manager"
 ARCHIVE="sh-iptv-spider-installer-${VERSION}-linux-amd64.tar.gz"
 ARCHIVE_URL="https://github.com/${REPOSITORY}/releases/download/v${VERSION}/${ARCHIVE}"
-ARCHIVE_SHA256="fe19605671eef2c61812cff05a6b8df4d76851a21f90514f139f2ece878cb185"
+ARCHIVE_SHA256="ab71428f9bed5bc2eaccc99f345a77b473f6411e6aa6e9f3ac634a67f2bbefae"
 
 if [ "$(uname -m)" != "x86_64" ]; then
   echo "目前仅支持 Linux amd64。" >&2
@@ -30,9 +30,9 @@ curl -fL --retry 3 --retry-delay 2 -o "${WORK_DIR}/${ARCHIVE}" "$ARCHIVE_URL"
 echo "${ARCHIVE_SHA256}  ${WORK_DIR}/${ARCHIVE}" | sha256sum -c -
 
 tar -xzf "${WORK_DIR}/${ARCHIVE}" -C "$WORK_DIR"
-INSTALL_DIR="${WORK_DIR}/sh-iptv-spider-installer"
+INSTALL_DIR="${WORK_DIR}/iptv-spider-installer"
 
-if [ ! -x "${INSTALL_DIR}/install.sh" ]; then
+if [ ! -f "${INSTALL_DIR}/install.sh" ]; then
   echo "下载的安装包中缺少 install.sh。" >&2
   exit 1
 fi
