@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+# Keep database text output in UTF-8 even when the SSH client starts a C locale.
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
 APP_DIR=${IPTV_SPIDER_DIR:-/opt/sh-iptv-spider}
 REPLAY_TEST=1
 overall_ok=1
@@ -90,7 +94,7 @@ user=$(section_value mysql username)
 password=$(section_value mysql password)
 host=$(section_value mysql path)
 if command -v mariadb >/dev/null 2>&1 && [ -n "$db" ] && [ -n "$user" ] && [ -n "$host" ]; then
-  db_stats=$(MYSQL_PWD="$password" mariadb -h "$host" -u "$user" "$db" --batch --skip-column-names -e \
+  db_stats=$(MYSQL_PWD="$password" mariadb --default-character-set=utf8mb4 -h "$host" -u "$user" "$db" --batch --skip-column-names -e \
     "SELECT (SELECT COUNT(*) FROM channel_infos),(SELECT COUNT(DISTINCT comm_name) FROM epg_details),(SELECT COUNT(*) FROM epg_details),(SELECT COUNT(*) FROM auth_infos),DATE_FORMAT(FROM_UNIXTIME(MIN(start_time)/1000),'%Y-%m-%d %H:%i'),DATE_FORMAT(FROM_UNIXTIME(MAX(end_time)/1000),'%Y-%m-%d %H:%i') FROM epg_details;" 2>/dev/null || true)
   IFS=$'\t' read -r db_channels db_epg_channels db_programmes auth_count first_time last_time <<< "$db_stats"
   echo "  数据库频道：${db_channels:-无法读取}"
@@ -124,7 +128,7 @@ elif [ -z "${db_stats:-}" ]; then
   echo '  无法读取数据库，无法选择回放样本。'
   overall_ok=0
 else
-  sample=$(MYSQL_PWD="$password" mariadb -h "$host" -u "$user" "$db" --batch --skip-column-names -e \
+  sample=$(MYSQL_PWD="$password" mariadb --default-character-set=utf8mb4 -h "$host" -u "$user" "$db" --batch --skip-column-names -e \
     "SELECT ci.mix_no,ed.start_time DIV 1000,GREATEST(60,LEAST(300,(ed.end_time-ed.start_time) DIV 1000)),ed.comm_name,ed.name FROM epg_details ed JOIN channel_infos ci ON ci.comm_name=ed.comm_name AND ci.deleted_at IS NULL JOIN channels c ON c.user_channel_id=ci.mix_no AND c.deleted_at IS NULL AND c.time_shift='1' AND c.time_shift_url<>'' WHERE ed.deleted_at IS NULL AND ed.end_time < UNIX_TIMESTAMP(NOW() - INTERVAL 10 MINUTE)*1000 ORDER BY ed.end_time DESC LIMIT 1;" 2>/dev/null || true)
   IFS=$'\t' read -r mix_no start duration channel_name programme_name <<< "$sample"
   if [ -z "${mix_no:-}" ]; then

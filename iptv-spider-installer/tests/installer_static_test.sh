@@ -23,6 +23,8 @@ grep -q '频道信息列表更新完成' "$ROOT/manage.sh"
 grep -q '更新节目信息列表完成' "$ROOT/manage.sh"
 grep -q 'tail -c' "$ROOT/manage.sh"
 grep -q 'stat -Lc %s' "$ROOT/manage.sh"
+grep -q 'default-character-set=utf8mb4' "$ROOT/status.sh"
+grep -q 'LC_ALL=C.UTF-8' "$ROOT/status.sh"
 grep -q '"/tv.m3u"' "$ROOT/router/router.go"
 grep -q '"/tv-direct.m3u"' "$ROOT/router/router.go"
 
