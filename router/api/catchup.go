@@ -698,18 +698,15 @@ func parseCatchupRange(ctx iris.Context) (time.Time, time.Duration, error) {
 	if duration > catchupMaxDuration {
 		return time.Time{}, 0, errors.New("duration exceeds eight hours")
 	}
-	if err := validateCatchupWindow(start, duration, time.Now().UTC()); err != nil {
+	if err := validateCatchupStart(start, time.Now().UTC()); err != nil {
 		return time.Time{}, 0, err
 	}
 	return start, duration, nil
 }
 
-func validateCatchupWindow(start time.Time, duration time.Duration, now time.Time) error {
+func validateCatchupStart(start time.Time, now time.Time) error {
 	if start.After(now.Add(5 * time.Minute)) {
-		return errors.New("start is outside the seven-day catchup window")
-	}
-	if start.Add(duration).Before(now.AddDate(0, 0, -catchupMaxDays)) {
-		return errors.New("programme is outside the seven-day catchup window")
+		return errors.New("start is in the future")
 	}
 	return nil
 }
