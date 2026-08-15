@@ -10,7 +10,13 @@ import (
 	"iptv-spider-sh/model"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+)
+
+var (
+	channelListFetchMu sync.Mutex
+	channelProgFetchMu sync.Mutex
 )
 
 func (c *Client) checkSessionState() error {
@@ -40,6 +46,9 @@ func (c *Client) checkSessionState() error {
 }
 
 func (c *Client) FetchChannelList() {
+	channelListFetchMu.Lock()
+	defer channelListFetchMu.Unlock()
+
 	err := c.checkSessionState()
 	if err != nil {
 		global.LOG.Error("FetchChannelList checkSessionState Err: " + err.Error())
@@ -103,6 +112,9 @@ func (c *Client) FetchChannelList() {
 }
 
 func (c *Client) FetchChannelProg() {
+	channelProgFetchMu.Lock()
+	defer channelProgFetchMu.Unlock()
+
 	err := c.checkSessionState()
 	if err != nil {
 		global.LOG.Error("FetchChannelProg checkSessionState Err: " + err.Error())
@@ -125,7 +137,7 @@ func (c *Client) FetchChannelProg() {
 			continue
 		}
 		endTime := now.AddDays(3).TimestampMilli()
-		startTime := now.SubDays(7).TimestampMilli()
+		startTime := epgHistoryBoundary(time.Now(), 7)
 		params := map[string]string{
 			"action":    "getChannelProg",
 			"code":      ch.Code,
@@ -152,7 +164,7 @@ func (c *Client) FetchChannelProg() {
 				zap.Any("resp", respJson))
 			continue
 		}
-		daysAgo := now.SubDays(7).TimestampMilli()
+		daysAgo := epgHistoryBoundary(time.Now(), 7)
 		// Keep completed programmes until the catch-up window expires. Providers
 		// sometimes revise historical schedules after clients have cached the EPG;
 		// deleting those rows also deletes the playbill ID needed by old catch-up
