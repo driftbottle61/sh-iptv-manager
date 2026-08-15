@@ -44,7 +44,7 @@ sudo ./install.sh
 也可使用一键安装脚本：
 
 ```bash
-curl -fsSL https://github.com/driftbottle61/sh-iptv-manager/releases/download/v1.2.20/install-oneclick.sh | sudo bash
+curl -fsSL https://github.com/driftbottle61/sh-iptv-manager/releases/download/v1.2.20/install-oneclick.sh | bash
 ```
 详细说明见 [安装包中文文档](iptv-spider-installer/README_CN.md)。
 
