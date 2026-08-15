@@ -137,7 +137,7 @@ func (c *Client) FetchChannelProg() {
 			continue
 		}
 		endTime := now.AddDays(3).TimestampMilli()
-		startTime := now.SubDays(7).TimestampMilli()
+		startTime := epgHistoryBoundary(time.Now(), 7)
 		params := map[string]string{
 			"action":    "getChannelProg",
 			"code":      ch.Code,
@@ -164,7 +164,7 @@ func (c *Client) FetchChannelProg() {
 				zap.Any("resp", respJson))
 			continue
 		}
-		daysAgo := now.SubDays(7).TimestampMilli()
+		daysAgo := epgHistoryBoundary(time.Now(), 7)
 		// Keep completed programmes until the catch-up window expires. Providers
 		// sometimes revise historical schedules after clients have cached the EPG;
 		// deleting those rows also deletes the playbill ID needed by old catch-up
@@ -174,7 +174,7 @@ func (c *Client) FetchChannelProg() {
 		length := 0
 		var des []model.EPGDetails
 		for _, details := range respJson.Data {
-			if details.EndTime < daysAgo {
+			if details.StartTime < daysAgo {
 				continue
 			}
 			details.CommName = ch.CommName

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 )
 
 const timeFormat = carbon.ShortDateTimeLayout + " -0700"
@@ -211,6 +212,7 @@ func GenerateXmlTv(daysAgo int) ([]byte, error) {
 		daysAgo = 7
 	}
 	var now = carbon.Now()
+	playableBoundary := now.SubDays(daysAgo).TimestampMilli()
 	var xmlTv = model.XmlTV{
 		Generator: fmt.Sprintf("%s %s", global.CONFIG.Epg.Generator, now.ToDateTimeString()),
 		Source:    global.CONFIG.Epg.Source,
@@ -241,7 +243,7 @@ func GenerateXmlTv(daysAgo int) ([]byte, error) {
 
 		var epgData []model.EPGDetails
 		global.DB.Where("comm_name = ?", info.CommName).
-			Where("start_time >= ?", now.SubDays(daysAgo).TimestampMilli()).
+			Where("start_time >= ?", epgHistoryBoundary(time.Now(), daysAgo)).
 			Order("start_time asc").
 			Find(&epgData)
 
@@ -252,7 +254,7 @@ func GenerateXmlTv(daysAgo int) ([]byte, error) {
 				Channel: chId,
 				Start:   startTime,
 				Stop:    endTime,
-				Title:   []*model.Title{{Lang: "zh", Value: epg.Name}},
+				Title:   []*model.Title{{Lang: "zh", Value: epgDisplayTitle(epg.Name, epg.StartTime, playableBoundary)}},
 				Desc:    []*model.Desc{{Lang: "zh"}},
 			})
 		}
