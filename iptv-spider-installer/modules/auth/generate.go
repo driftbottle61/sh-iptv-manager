@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 )
 
 const timeFormat = carbon.ShortDateTimeLayout + " -0700"
@@ -240,7 +241,7 @@ func GenerateXmlTv(daysAgo int) ([]byte, error) {
 
 		var epgData []model.EPGDetails
 		global.DB.Where("comm_name = ?", info.CommName).
-			Where("end_time > ?", playableBoundary).
+			Where("start_time >= ?", epgHistoryBoundary(time.Now(), daysAgo)).
 			Order("start_time asc").
 			Find(&epgData)
 
