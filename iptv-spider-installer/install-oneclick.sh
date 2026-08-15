@@ -5,7 +5,7 @@ VERSION="1.2.19"
 REPOSITORY="driftbottle61/sh-iptv-manager"
 ARCHIVE="sh-iptv-spider-installer-${VERSION}-linux-amd64.tar.gz"
 ARCHIVE_URL="https://github.com/${REPOSITORY}/releases/download/v${VERSION}/${ARCHIVE}"
-ARCHIVE_SHA256="011e4448b09d55d8b84f44f3384de39f2bfc961978e514a9567a3aeaa0e8d84f"
+ARCHIVE_SHA256="27aad0892c398f3cb1648f61096cd971180d44b9504f05fa683c3341f8b945eb"
 
 if [ "$(uname -m)" != "x86_64" ]; then
   echo "目前仅支持 Linux amd64。" >&2

@@ -9,6 +9,10 @@ bash -n "$ROOT/status.sh"
 bash -n "$ROOT/manage.sh"
 bash -n "$ROOT/install-oneclick.sh"
 
+installer_version=$(cat "$ROOT/VERSION")
+oneclick_version=$(sed -n 's/^VERSION="\([^"]*\)"$/\1/p' "$ROOT/install-oneclick.sh")
+test "$installer_version" = "$oneclick_version"
+
 grep -q 'INSTALL_DIR="${WORK_DIR}/iptv-spider-installer"' "$ROOT/install-oneclick.sh"
 grep -q 'if \[ ! -f "${INSTALL_DIR}/install.sh" \]' "$ROOT/install-oneclick.sh"
 grep -q 'for mysql_account_host in localhost 127.0.0.1 %' "$ROOT/install.sh"
