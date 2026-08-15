@@ -30,10 +30,10 @@
 面向 Debian/Ubuntu 的交互式安装包在
 [`iptv-spider-installer/`](iptv-spider-installer/)；它不包含任何账号、机顶盒认证信息或现网配置。
 
-最新发行版为 `v1.2.25`。下载 `releases/sh-iptv-spider-installer-1.2.25-linux-amd64.tar.gz` 后执行：
+最新发行版为 `v1.2.26`。下载 `releases/sh-iptv-spider-installer-1.2.26-linux-amd64.tar.gz` 后执行：
 
 ```bash
-tar -xzf sh-iptv-spider-installer-1.2.25-linux-amd64.tar.gz
+tar -xzf sh-iptv-spider-installer-1.2.26-linux-amd64.tar.gz
 cd sh-iptv-spider-installer
 ./install.sh
 ```
@@ -44,7 +44,7 @@ cd sh-iptv-spider-installer
 也可使用一键安装脚本：
 
 ```bash
-curl -fsSL https://github.com/driftbottle61/sh-iptv-manager/releases/download/v1.2.25/install-oneclick.sh | bash
+curl -fsSL https://github.com/driftbottle61/sh-iptv-manager/releases/download/v1.2.26/install-oneclick.sh | bash
 ```
 详细说明见 [安装包中文文档](iptv-spider-installer/README_CN.md)。
 
