@@ -70,7 +70,10 @@ func GenerateDirectIPTVSharpM3u(ctx iris.Context) {
 
 func generateDirectClientM3u(ctx iris.Context, iptvSharp bool) {
 	udpxy := ctx.URLParamDefault("udpxy", "192.168.100.51:4022")
-	days := 7
+	days := 8
+	if iptvSharp {
+		days = 7
+	}
 	scheme := ctx.GetHeader("X-Forwarded-Proto")
 	if scheme == "" {
 		scheme = "http"

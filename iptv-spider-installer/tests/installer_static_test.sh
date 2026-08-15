@@ -32,6 +32,8 @@ grep -q 'LC_ALL=C.UTF-8' "$ROOT/status.sh"
 grep -q '"/tv.m3u"' "$ROOT/router/router.go"
 grep -q '"/tv-direct.m3u"' "$ROOT/router/router.go"
 grep -q '"/iptvsharp.m3u"' "$ROOT/router/router.go"
+grep -q 'days := 8' "$ROOT/router/api/router.go"
+grep -A2 'if iptvSharp {' "$ROOT/router/api/router.go" | grep -q 'days = 7'
 grep -q '通用播放源.*tv.m3u' "$ROOT/install.sh"
 grep -q 'IPTV# 专用播放源.*iptvsharp.m3u' "$ROOT/install.sh"
 
