@@ -28,6 +28,7 @@ import (
 const (
 	catchupMaxDays     = 7
 	catchupMaxDuration = 8 * time.Hour
+	catchupMinTail     = 12 * time.Second
 	catchupUserAgent   = "IPTVSpiderCatchup/1.0"
 	tiviMateSourceURL  = "http://192.168.100.51:34400/m3u/xteve.m3u"
 )
@@ -423,6 +424,9 @@ func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) (int64,
 			return written, readErr
 		}
 		if response.StatusCode != http.StatusOK {
+			if response.StatusCode == http.StatusRequestedRangeNotSatisfiable && written > 0 {
+				return written, nil
+			}
 			return written, &hlsRelayError{status: response.StatusCode, err: fmt.Errorf("HLS request returned %s", response.Status)}
 		}
 		lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
@@ -469,6 +473,9 @@ func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) (int64,
 			}
 			if resp.StatusCode != http.StatusOK {
 				resp.Body.Close()
+				if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable && written > 0 {
+					return written, nil
+				}
 				return written, &hlsRelayError{status: resp.StatusCode, err: fmt.Errorf("HLS segment returned %s", resp.Status)}
 			}
 			n, copyErr := io.Copy(writer, resp.Body)
@@ -513,15 +520,12 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 	programStart := program.StartTime / 1000
 	programEnd := program.EndTime / 1000
 	requestedStart := start.Unix()
-	if exactProgram && requestedStart < programStart {
-		requestedStart = programStart
-	}
 	requestedEnd := start.Add(duration).Unix()
-	if exactProgram && requestedEnd > programEnd {
-		requestedEnd = programEnd
-	}
 	if requestedEnd > time.Now().Unix() {
 		requestedEnd = time.Now().Unix()
+	}
+	if exactProgram {
+		requestedStart, requestedEnd = normalizeCatchupWindow(programStart, programEnd, requestedStart, requestedEnd)
 	}
 	if requestedEnd <= requestedStart {
 		return "", &tvodError{status: http.StatusRequestedRangeNotSatisfiable, msg: "TVOD request range is empty"}
@@ -605,6 +609,23 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 	return "", errors.New("TVOD URL not issued")
 }
 
+func normalizeCatchupWindow(programStart, programEnd, requestedStart, requestedEnd int64) (int64, int64) {
+	if requestedStart < programStart {
+		requestedStart = programStart
+	}
+	if requestedEnd > programEnd {
+		requestedEnd = programEnd
+	}
+	minimum := int64(catchupMinTail / time.Second)
+	if requestedEnd > requestedStart && requestedEnd-requestedStart < minimum {
+		requestedStart = requestedEnd - minimum
+		if requestedStart < programStart {
+			requestedStart = programStart
+		}
+	}
+	return requestedStart, requestedEnd
+}
+
 func refreshTvodAuth() error {
 	tvodAuthMu.Lock()
 	defer tvodAuthMu.Unlock()
@@ -649,10 +670,6 @@ func parseCatchupRange(ctx iris.Context) (time.Time, time.Duration, error) {
 		seconds /= 1000
 	}
 	start := time.Unix(seconds, 0).UTC()
-	now := time.Now().UTC()
-	if start.Before(now.AddDate(0, 0, -catchupMaxDays)) || start.After(now.Add(5*time.Minute)) {
-		return time.Time{}, 0, errors.New("start is outside the seven-day catchup window")
-	}
 
 	rawDuration := ctx.URLParam("duration")
 	if rawDuration == "" {
@@ -681,7 +698,20 @@ func parseCatchupRange(ctx iris.Context) (time.Time, time.Duration, error) {
 	if duration > catchupMaxDuration {
 		return time.Time{}, 0, errors.New("duration exceeds eight hours")
 	}
+	if err := validateCatchupWindow(start, duration, time.Now().UTC()); err != nil {
+		return time.Time{}, 0, err
+	}
 	return start, duration, nil
+}
+
+func validateCatchupWindow(start time.Time, duration time.Duration, now time.Time) error {
+	if start.After(now.Add(5 * time.Minute)) {
+		return errors.New("start is outside the seven-day catchup window")
+	}
+	if start.Add(duration).Before(now.AddDate(0, 0, -catchupMaxDays)) {
+		return errors.New("programme is outside the seven-day catchup window")
+	}
+	return nil
 }
 
 func openCatchupSession(ctx context.Context, source string, start time.Time, duration time.Duration) (*rtspClient, error) {

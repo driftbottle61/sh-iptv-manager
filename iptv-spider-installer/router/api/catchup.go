@@ -670,10 +670,6 @@ func parseCatchupRange(ctx iris.Context) (time.Time, time.Duration, error) {
 		seconds /= 1000
 	}
 	start := time.Unix(seconds, 0).UTC()
-	now := time.Now().UTC()
-	if start.Before(now.AddDate(0, 0, -catchupMaxDays)) || start.After(now.Add(5*time.Minute)) {
-		return time.Time{}, 0, errors.New("start is outside the seven-day catchup window")
-	}
 
 	rawDuration := ctx.URLParam("duration")
 	if rawDuration == "" {
@@ -702,7 +698,20 @@ func parseCatchupRange(ctx iris.Context) (time.Time, time.Duration, error) {
 	if duration > catchupMaxDuration {
 		return time.Time{}, 0, errors.New("duration exceeds eight hours")
 	}
+	if err := validateCatchupWindow(start, duration, time.Now().UTC()); err != nil {
+		return time.Time{}, 0, err
+	}
 	return start, duration, nil
+}
+
+func validateCatchupWindow(start time.Time, duration time.Duration, now time.Time) error {
+	if start.After(now.Add(5 * time.Minute)) {
+		return errors.New("start is outside the seven-day catchup window")
+	}
+	if start.Add(duration).Before(now.AddDate(0, 0, -catchupMaxDays)) {
+		return errors.New("programme is outside the seven-day catchup window")
+	}
+	return nil
 }
 
 func openCatchupSession(ctx context.Context, source string, start time.Time, duration time.Duration) (*rtspClient, error) {
