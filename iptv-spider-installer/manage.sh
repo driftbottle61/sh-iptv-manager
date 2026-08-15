@@ -185,8 +185,8 @@ while :; do
   echo '  1、状态显示'
   echo '  2、手动抓取'
   echo '  3、重启服务'
-  echo '  4、卸载'
-  echo '  5、抓取计划'
+  echo '  4、抓取计划'
+  echo '  5、卸载'
   echo '  0、退出'
   echo '------------------------------------------------------------'
   read -r -p '请选择 [0-5]：' choice
@@ -194,14 +194,14 @@ while :; do
     1) "$STATUS_CMD" || true ;;
     2) manual_fetch ;;
     3) restart_service ;;
-    4)
+    4) edit_fetch_schedule ;;
+    5)
       /usr/local/sbin/iptv-spider-uninstall
       if [ ! -x /usr/local/sbin/iptv-spider-uninstall ]; then
         echo '卸载完成，管理菜单即将退出。'
         exit 0
       fi
       ;;
-    5) edit_fetch_schedule ;;
     0)
       echo '已退出管理菜单，IPTV Spider 服务保持运行。'
       exit 0
