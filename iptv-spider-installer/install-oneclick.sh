@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.2.18"
+VERSION="1.2.19"
 REPOSITORY="driftbottle61/sh-iptv-manager"
 ARCHIVE="sh-iptv-spider-installer-${VERSION}-linux-amd64.tar.gz"
 ARCHIVE_URL="https://github.com/${REPOSITORY}/releases/download/v${VERSION}/${ARCHIVE}"
-ARCHIVE_SHA256="9a7552408885cb1010ae78be9f364047f31dc7bb861321adceec3b5cf7170639"
+ARCHIVE_SHA256="011e4448b09d55d8b84f44f3384de39f2bfc961978e514a9567a3aeaa0e8d84f"
 
 if [ "$(uname -m)" != "x86_64" ]; then
   echo "目前仅支持 Linux amd64。" >&2

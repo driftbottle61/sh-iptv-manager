@@ -56,6 +56,14 @@ func GenerateM3u8(udpxy, scheme, xteve, all string) []byte {
 }
 
 func GenerateDirectCatchupM3u8(udpxy, epgURL, catchupBase string, days int) []byte {
+	return generateDirectCatchupM3u8(udpxy, epgURL, catchupBase, days, "utc")
+}
+
+func GenerateDirectIPTVSharpM3u8(udpxy, epgURL, catchupBase string, days int) []byte {
+	return generateDirectCatchupM3u8(udpxy, epgURL, catchupBase, days, "start")
+}
+
+func generateDirectCatchupM3u8(udpxy, epgURL, catchupBase string, days int, startToken string) []byte {
 	m3uWriter := m3u.NewWriter()
 	m3uWriter.WriteHeaderWithInfo(epgURL)
 	referenceMappings := fetchDirectReferenceMappings()
@@ -76,7 +84,7 @@ func GenerateDirectCatchupM3u8(udpxy, epgURL, catchupBase string, days int) []by
 		if mapping.AutoGroups == "购物" || mapping.CustomGroups == "购物" {
 			continue
 		}
-		m3uWriter.WriteCatchup(assemblyUrl(udpxy, "", "", channel.ChannelURL), info, mapping, catchupBase, days)
+		m3uWriter.WriteCatchupWithStartToken(assemblyUrl(udpxy, "", "", channel.ChannelURL), info, mapping, catchupBase, days, startToken)
 	}
 	return m3uWriter.Bytes()
 }

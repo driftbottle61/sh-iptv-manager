@@ -36,6 +36,10 @@ func (m *Writer) Write(uri string, info model.ChannelInfo, ext model.M3u8Mapping
 }
 
 func (m *Writer) WriteCatchup(uri string, info model.ChannelInfo, ext model.M3u8Mapping, source string, days int) {
+	m.WriteCatchupWithStartToken(uri, info, ext, source, days, "utc")
+}
+
+func (m *Writer) WriteCatchupWithStartToken(uri string, info model.ChannelInfo, ext model.M3u8Mapping, source string, days int, startToken string) {
 	var groups = ext.CustomGroups
 	if groups == "" {
 		groups = ext.AutoGroups
@@ -45,7 +49,7 @@ func (m *Writer) WriteCatchup(uri string, info model.ChannelInfo, ext model.M3u8
 	}
 	m.buf.WriteString("\n")
 	m.buf.WriteString(fmt.Sprintf(`#EXTINF:-1 tvg-id="%s" tvg-name="%s" tvg-logo="%s"`, info.MixNo, info.CommName, ext.Logo))
-	m.buf.WriteString(fmt.Sprintf(` group-title="%s" catchup="default" catchup-days="%d" catchup-source="%s/%s/{utc}/{duration}.ts"`, groups, days, source, info.MixNo))
+	m.buf.WriteString(fmt.Sprintf(` group-title="%s" catchup="default" catchup-days="%d" catchup-source="%s/%s/{%s}/{duration}.ts"`, groups, days, source, info.MixNo, startToken))
 	m.buf.WriteString(fmt.Sprintf(",%s\n%s", info.Name, uri))
 }
 

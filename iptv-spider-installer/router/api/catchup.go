@@ -686,6 +686,10 @@ func parseCatchupRange(ctx iris.Context) (time.Time, time.Duration, error) {
 	durationSeconds, err := strconv.ParseInt(rawDuration, 10, 64)
 	var duration time.Duration
 	if err == nil {
+		// IPTV# sends programme duration in milliseconds.
+		if durationSeconds > int64(catchupMaxDuration/time.Second) && durationSeconds%1000 == 0 {
+			durationSeconds /= 1000
+		}
 		duration = time.Duration(durationSeconds) * time.Second
 	} else if parsed, parseErr := time.ParseDuration(rawDuration); parseErr == nil {
 		duration = parsed
