@@ -114,6 +114,10 @@ net1: bridge=vmbr0, tag=85, hwaddr=<机顶盒 MAC>, ip=<IPTV 地址>/24
 
 ## 第二部分：项目安装、配置与使用
 
+### PVE CT 创建模板
+
+完整的 IPTV Spider 三网卡 CT 创建命令和参数说明见 [`docs/pve-ct-template-cn.md`](docs/pve-ct-template-cn.md)。
+
 ### 1. 环境要求
 
 - Debian 12 / Ubuntu 22.04 或更新版本
