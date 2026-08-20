@@ -51,6 +51,8 @@ udp://@233.18.204.47:5140
 udp://@233.18.204.48:5140
 #EXTINF:-1 tvg-id="99" tvg-name="法治天地" tvg-logo="http://192.168.100.182/iptvlogos/法治天地.png" group-title="地方",法治天地HD
 udp://@233.18.204.49:5140
+#EXTINF:-1 tvg-id="100" tvg-name="多彩文体" tvg-logo="http://192.168.100.182/iptvlogos/多彩文体4K.png" group-title="地方",多彩文体HD
+udp://@233.18.204.50:5140
 #EXTINF:-1 tvg-id="101" tvg-name="东方卫视" tvg-logo="http://192.168.100.182/iptvlogos/dongfang.png" group-title="卫视",东方卫视HD
 udp://@233.18.204.51:5140
 #EXTINF:-1 tvg-id="102" tvg-name="CCTV-1" tvg-logo="http://192.168.100.182/iptvlogos/CCTV-1.png" group-title="央视",CCTV-1HD
