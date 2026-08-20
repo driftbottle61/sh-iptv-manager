@@ -101,8 +101,13 @@ func RemoveDuplicateChannelInfo(in []ChannelInfo) []ChannelInfo {
 	for _, v := range newMap {
 		newArr = append(newArr, v)
 	}
-	// sort by mix_no
-	sort.Slice(newArr, func(i, j int) bool {
+	// Keep the provider's numeric order as the tie-breaker, but make the
+	// generated "all channels" list follow the user's category order.
+	sort.SliceStable(newArr, func(i, j int) bool {
+		ri, rj := channelSortRank(newArr[i]), channelSortRank(newArr[j])
+		if ri != rj {
+			return ri < rj
+		}
 		numi, err := strconv.Atoi(newArr[i].MixNo)
 		if err != nil {
 			return false
@@ -114,6 +119,83 @@ func RemoveDuplicateChannelInfo(in []ChannelInfo) []ChannelInfo {
 		return numi < numj
 	})
 	return newArr
+}
+
+var preferredLocalOrder = map[string]int{
+	"新闻综合": 0, "五星体育": 1, "第一财经": 2, "上海教育": 3,
+	"都市频道": 4, "东方影视": 5, "东方财经": 6, "金鹰纪实": 7,
+}
+
+var localChannelNames = map[string]bool{
+	"快乐垂钓": true, "游戏风云": true, "生活时尚": true, "动漫秀场": true,
+	"乐游": true, "都市剧场": true, "法治天地": true, "多彩文体": true,
+	"哈哈炫动": true, "金色学堂": true, "财富天下": true, "家庭理财": true,
+}
+
+var preferredCCTVByMixNo = map[string]int{
+	"102": 0, "125": 1, "126": 2, "127": 3, "128": 4, "129": 5,
+	"130": 6, "131": 7, "132": 8, "133": 9, "134": 10, "135": 11,
+	"136": 12, "137": 13, "138": 14, "139": 15, "140": 16,
+}
+
+var preferredCCTVByName = map[string]int{
+	"CCTV-1": 0, "CCTV-2": 1, "CCTV-3": 2, "CCTV-4": 3, "CCTV-5": 4,
+	"CCTV-6": 5, "CCTV-7": 6, "CCTV-8": 7, "CCTV-9": 8, "CCTV-10": 9,
+	"CCTV-11": 10, "CCTV-12": 11, "CCTV-13": 12, "CCTV-14": 13,
+	"CCTV-15": 14, "CCTV-16": 15, "CCTV-17": 16,
+}
+
+var cctvSupplementNames = map[string]bool{
+	"CGTN": true, "风云足球": true, "央视台球": true, "兵器科技": true,
+	"世界地理": true, "女性时尚": true, "高尔夫网球": true, "怀旧剧场": true,
+	"风云剧场": true, "第一剧场": true, "风云音乐": true, "央视文化精品": true,
+	"早期教育": true, "中国教育-1": true, "中国教育-2": true, "中国教育-4": true,
+	"CCTV-5+": true, "CCTV-4K": true,
+}
+
+func channelSortRank(ch ChannelInfo) int {
+	name := strings.TrimSpace(ch.CommName)
+	if rank, ok := preferredLocalOrder[name]; ok {
+		return rank
+	}
+	if rank, ok := preferredCCTVByMixNo[ch.MixNo]; ok {
+		return 100 + rank
+	}
+	if rank, ok := preferredCCTVByName[name]; ok {
+		return 100 + rank
+	}
+	if cctvSupplementNames[name] {
+		return 200
+	}
+	if localChannelNames[name] {
+		return 50
+	}
+	if strings.Contains(name, "CCTV") {
+		return 100 + cctvOrder(name)
+	}
+	if strings.Contains(name, "卫视") {
+		return 300
+	}
+	if strings.HasPrefix(name, "CHC") {
+		return 400
+	}
+	if strings.Contains(name, "卡通") || strings.Contains(name, "动漫") || strings.Contains(name, "炫动") {
+		return 500
+	}
+	// Other local channels follow the requested local front section.
+	if name != "" {
+		return 50
+	}
+	return 600
+}
+
+func cctvOrder(name string) int {
+	for i := 1; i <= 17; i++ {
+		if name == "CCTV-"+strconv.Itoa(i) {
+			return i - 1
+		}
+	}
+	return 99
 }
 
 func check(c1, c2 ChannelInfo) ChannelInfo {
