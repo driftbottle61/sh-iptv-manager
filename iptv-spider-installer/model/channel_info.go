@@ -179,7 +179,7 @@ func channelSortRank(ch ChannelInfo) int {
 	if strings.HasPrefix(name, "CHC") {
 		return 400
 	}
-	if strings.Contains(name, "卡通") || strings.Contains(name, "动漫") || strings.Contains(name, "炫动") {
+	if strings.Contains(name, "卡通") || strings.Contains(name, "动漫") || strings.Contains(name, "炫动") || name == "卡酷少儿" {
 		return 500
 	}
 	// Other local channels follow the requested local front section.
