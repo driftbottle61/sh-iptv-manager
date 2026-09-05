@@ -9,6 +9,7 @@ import (
 	"iptv-spider-sh/initialize"
 	"iptv-spider-sh/modules/auth"
 	"iptv-spider-sh/router"
+	"net"
 )
 
 func main() {
@@ -39,7 +40,9 @@ func main() {
 	router.InitRouters(app)
 
 	stb := global.CONFIG.Stb
-	client, err := auth.NewGlobalClient(stb.UID, stb.SN, stb.MAC, stb.IP, auth.With4kLogAuthAddr(stb.AuthHost))
+	client, err := auth.NewGlobalClient(stb.UID, stb.SN, stb.MAC, stb.IP,
+		auth.With4kLogAuthAddr(stb.AuthHost),
+		auth.WithHTTPClientLocalAddr(net.JoinHostPort(stb.IP, "0")))
 	if err != nil {
 		global.LOG.Error("New AuthClient: " + err.Error())
 		return

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type HttpClient struct {
@@ -31,7 +32,9 @@ func (c *HttpClient) Request(uri, method string, form map[string]string) *HttpCl
 		global.LOG.Error(fmt.Sprintf("%s %s", method, uri))
 		global.LOG.Error(err.Error())
 	}
-	global.LOG.Debug(fmt.Sprintf("Resp Body: %s", string(c.resp.Body())))
+	if c.resp != nil {
+		global.LOG.Debug(fmt.Sprintf("Resp Body: %s", string(c.resp.Body())))
+	}
 	return c
 }
 
@@ -40,6 +43,9 @@ func (c *HttpClient) GetResp() *resty.Response {
 }
 
 func (c *HttpClient) GetRespBytes() []byte {
+	if c.resp == nil {
+		return nil
+	}
 	return c.resp.Body()
 }
 
@@ -51,7 +57,7 @@ func NewHttpClient(opts ...HttpClientOption) *HttpClient {
 		opt(c)
 	}
 	if c.client == nil {
-		c.client = resty.New()
+		c.client = resty.New().SetTimeout(12 * time.Second)
 	}
 	c.afterAction()
 	return c
@@ -89,6 +95,6 @@ func WithLocalAddr(addr string) HttpClientOption {
 		} else {
 			global.LOG.Warn("ResolveTCPAddr success: " + addr)
 		}
-		c.client = resty.NewWithLocalAddr(tcpAddr)
+		c.client = resty.NewWithLocalAddr(tcpAddr).SetTimeout(12 * time.Second)
 	}
 }

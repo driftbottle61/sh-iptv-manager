@@ -147,12 +147,12 @@ iptv-spider-status --skip-replay
 在已经安装 IPTV Spider 的服务器上运行新版一键安装命令，安装器检测到现有
 `config.yaml` 后会提供覆盖升级选项。覆盖升级会：
 
-- 保留现有 `config.yaml`、数据库内容和 `eth1` IPTV 专网配置；
+- 保留现有 `config.yaml`、数据库内容和 `eth1` 的安装器配置段；覆盖后按新抓包结果重写 IPTV 地址与路由；
 - 更新主程序、抓包工具、Logo、频道映射、帮助文件和 systemd 单元；
 - 在安装目录旁创建带时间戳的完整备份；
 - 新版本无法稳定启动时自动恢复旧版本。
 
-覆盖升级不会重新抓取机顶盒信息，也不会要求重新输入数据库密码。确认新版本稳定后，
+覆盖升级必须重新通过 RouterOS 抓取机顶盒信息，但不会要求重新输入数据库密码。抓包成功后，
 可手工删除安装目录旁的 `upgrade-backup` 备份。
 
 ## 卸载
@@ -193,3 +193,12 @@ cp /opt/sh-iptv-spider/config.yaml /root/iptv-spider-config.yaml.bak
 ```
 
 新发行包默认不会覆盖已有 `config.yaml`；需要先确认并迁移新增配置字段后再升级。
+
+覆盖安装时也必须重新通过 RouterOS 抓取实体机顶盒。抓包成功后，安装程序只更新
+`config.yaml` 中的 UID、MAC、SN、型号、A/B 面地址和认证地址，保留数据库、服务端口、
+直播源、回放设置及其他配置；原机顶盒配置会单独备份。安装程序还会重新写入 `eth1`
+的静态 `/16` 地址，并输出当前三层出口所需的 RouterOS 路由、转发和 SNAT 命令。
+CT 不直接把机顶盒 B 面网关作为二层邻居，而是以 RouterOS 的 IPTV DHCP 地址作为
+`eth1` 路由下一跳；RouterOS 再经 `bridge_iptv` 转发到抓包得到的 B 面网关，并将
+CT 源地址 SNAT 为该 IPTV DHCP 地址。安装时会询问当前 `bridge_iptv` DHCP 地址，
+并把实际地址写入 Linux 持久化路由及 RouterOS 命令输出。

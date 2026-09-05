@@ -8,11 +8,15 @@ import (
 	"gorm.io/gorm/clause"
 	"iptv-spider-sh/global"
 	"iptv-spider-sh/model"
+	"iptv-spider-sh/modules/http_client"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+var epgFallbackHosts = []string{"218.83.188.231:8084"}
 
 var (
 	channelListFetchMu sync.Mutex
@@ -28,7 +32,10 @@ func (c *Client) checkSessionState() error {
 	global.LOG.Info("Check session state")
 	p := "service/auth/AuthByAjax.jsp?action=auth"
 	uri := fmt.Sprintf("%s/%s", c.EPGHostUrl, p)
-	resp := c.httpClient.Request(uri, "GET", nil)
+	resp := c.requestEPG(uri, "GET", nil)
+	if resp.GetResp() == nil || resp.GetResp().StatusCode() == 0 {
+		return fmt.Errorf("EPG host unavailable: %s", c.EPGHostUrl)
+	}
 	cont := resp.GetResp().Header().Get("Content-Type")
 	if !strings.Contains(cont, "json") {
 		global.LOG.Info("Session expired, reAuth")
@@ -45,6 +52,74 @@ func (c *Client) checkSessionState() error {
 	return nil
 }
 
+func (c *Client) requestEPG(uri, method string, form map[string]string) *http_client.HttpClient {
+	resp := c.httpClient.Request(uri, method, form)
+	if resp.GetResp() != nil && resp.GetResp().StatusCode() > 0 &&
+		(strings.EqualFold(method, "GET") || strings.Contains(resp.GetResp().Header().Get("Content-Type"), "json")) {
+		return resp
+	}
+	if resp.GetResp() != nil && resp.GetResp().StatusCode() > 0 && strings.EqualFold(method, "POST") {
+		if err := c.StartAuth(); err == nil {
+			return c.httpClient.Request(uriForCurrentEPG(c.EPGHostUrl, uri), method, form)
+		}
+	}
+	if !c.tryEPGFallback() {
+		return resp
+	}
+	u, err := url.Parse(uri)
+	if err != nil {
+		return resp
+	}
+	base, err := url.Parse(c.EPGHostUrl)
+	if err != nil {
+		return resp
+	}
+	u.Host = base.Host
+	if strings.EqualFold(method, "POST") && c.StartAuth() == nil {
+		return c.httpClient.Request(uriForCurrentEPG(c.EPGHostUrl, uri), method, form)
+	}
+	return c.httpClient.Request(u.String(), method, form)
+}
+
+func uriForCurrentEPG(base, original string) string {
+	u, err := url.Parse(original)
+	if err != nil {
+		return original
+	}
+	b, err := url.Parse(base)
+	if err != nil {
+		return original
+	}
+	u.Host = b.Host
+	return u.String()
+}
+
+// Try known EPG nodes before forcing a full STB re-authentication. The load
+// balancer can leave a dead node in AuthInfo even while another node works.
+func (c *Client) tryEPGFallback() bool {
+	old := c.EPGHostUrl
+	for _, host := range epgFallbackHosts {
+		if strings.Contains(old, host) {
+			continue
+		}
+		candidate := old
+		if u, err := url.Parse(old); err == nil {
+			u.Host = host
+			candidate = u.String()
+		}
+		c.EPGHostUrl = candidate
+		c.updateCookies()
+		probe := c.httpClient.Request(candidate+"/service/auth/AuthByAjax.jsp?action=auth", "GET", nil)
+		if probe.GetResp() != nil && probe.GetResp().StatusCode() > 0 &&
+			strings.Contains(probe.GetResp().Header().Get("Content-Type"), "json") {
+			global.LOG.Warn("切换到备用 EPG 节点", zap.String("host", host))
+			return true
+		}
+	}
+	c.EPGHostUrl = old
+	return false
+}
+
 func (c *Client) FetchChannelList() {
 	channelListFetchMu.Lock()
 	defer channelListFetchMu.Unlock()
@@ -58,7 +133,7 @@ func (c *Client) FetchChannelList() {
 	global.LOG.Info("开始更新频道信息列表")
 	p := "function/ajax/epg7getChannelByAjax.jsp"
 	uri := fmt.Sprintf("%s/%s", c.EPGHostUrl, p)
-	resp := c.httpClient.Request(uri, "POST", map[string]string{
+	resp := c.requestEPG(uri, "POST", map[string]string{
 		"action": "getChannelList",
 		"cateID": "000406",
 	})
@@ -147,7 +222,7 @@ func (c *Client) FetchChannelProg() {
 			"offset":    "0",
 			"limit":     "2000",
 		}
-		resp := c.httpClient.Request(uri, "POST", params)
+		resp := c.requestEPG(uri, "POST", params)
 		var respJson model.JsonResponse[model.EPGDetails]
 		err := json.Unmarshal(resp.GetRespBytes(), &respJson)
 		if err != nil {

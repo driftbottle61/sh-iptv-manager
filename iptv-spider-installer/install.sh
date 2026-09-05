@@ -130,6 +130,59 @@ upgrade_existing() {
   /usr/local/sbin/iptv-spider-status || true
 }
 
+update_existing_stb_config() {
+  local config_file=$APP_DIR/config.yaml backup
+  backup="${config_file}.stb-backup.$(date +%Y%m%d%H%M%S)"
+  cp -a "$config_file" "$backup"
+  STB_UID=$(yaml_escape "$STB_UID")
+  STB_MAC=$(yaml_escape "$STB_MAC")
+  STB_SN=$(yaml_escape "$STB_SN")
+  STB_IP=$(yaml_escape "$STB_IP")
+  STB_TYPE=$(yaml_escape "$STB_TYPE")
+  AUTH_HOST=$(yaml_escape "$AUTH_HOST")
+  STB_PLANE_A_IP=$(yaml_escape "$STB_PLANE_A_IP")
+  STB_PLANE_B_GATEWAY=$(yaml_escape "$STB_PLANE_B_GATEWAY")
+  sed -i \
+    -e "0,/^  uid: /s//  uid: '$STB_UID'/" \
+    -e "0,/^  mac: /s//  mac: '$STB_MAC'/" \
+    -e "0,/^  sn: /s//  sn: '$STB_SN'/" \
+    -e "0,/^  ip: /s//  ip: '$STB_IP'/" \
+    -e "0,/^  type: /s//  type: '$STB_TYPE'/" \
+    -e "0,/^  auth_host: /s//  auth_host: '$AUTH_HOST'/" \
+    -e "0,/^  plane_a_ip: /s//  plane_a_ip: '$STB_PLANE_A_IP'/" \
+    -e "0,/^  plane_b_gateway: /s//  plane_b_gateway: '$STB_PLANE_B_GATEWAY'/" \
+    "$config_file"
+  echo "已更新机顶盒字段，原配置备份：$backup"
+}
+
+show_routeros_iptv_commands() {
+  cat <<EOF
+
+请在 RouterOS 持久化以下 IPTV Spider 三层出口配置：
+/ip route add dst-address=218.83.0.0/16 gateway=${STB_PLANE_B_GATEWAY}%bridge_iptv comment="iptv-spider EPG via IPTV gateway"
+/ip route add dst-address=222.68.0.0/16 gateway=${STB_PLANE_B_GATEWAY}%bridge_iptv comment="iptv-spider auth via IPTV gateway"
+/ip route add dst-address=124.75.0.0/16 gateway=${STB_PLANE_B_GATEWAY}%bridge_iptv comment="iptv-spider auth CDN via IPTV gateway"
+/ip firewall filter add chain=forward action=accept connection-state=new src-address=${STB_IP} dst-address=218.83.0.0/16 comment="iptv-spider CT EPG forwarding" place-before=0
+/ip firewall filter add chain=forward action=accept connection-state=new src-address=${STB_IP} dst-address=222.68.0.0/16 comment="iptv-spider CT auth forwarding" place-before=0
+/ip firewall filter add chain=forward action=accept connection-state=new src-address=${STB_IP} dst-address=124.75.0.0/16 comment="iptv-spider CT auth CDN forwarding" place-before=0
+/ip firewall nat add chain=srcnat action=src-nat to-addresses=${ROUTEROS_IPTV_DHCP_IP} src-address=${STB_IP} dst-address=218.83.0.0/16 comment="iptv-spider CT EPG SNAT" place-before=0
+/ip firewall nat add chain=srcnat action=src-nat to-addresses=${ROUTEROS_IPTV_DHCP_IP} src-address=${STB_IP} dst-address=222.68.0.0/16 comment="iptv-spider CT auth SNAT" place-before=0
+/ip firewall nat add chain=srcnat action=src-nat to-addresses=${ROUTEROS_IPTV_DHCP_IP} src-address=${STB_IP} dst-address=124.75.0.0/16 comment="iptv-spider CT auth CDN SNAT" place-before=0
+
+路由下一跳使用机顶盒抓包得到的 B 面网关；SNAT 地址使用 RouterOS 当前 bridge_iptv 的 DHCP 地址：${ROUTEROS_IPTV_DHCP_IP}。
+EOF
+}
+
+collect_routeros_iptv_ip() {
+  while :; do
+    ROUTEROS_IPTV_DHCP_IP=$(ask 'RouterOS bridge_iptv 当前 IPTV DHCP 地址' "${ROUTEROS_IPTV_DHCP_IP:-}")
+    if valid_ipv4 "$ROUTEROS_IPTV_DHCP_IP"; then
+      return 0
+    fi
+    echo "RouterOS IPTV DHCP 地址格式无效：$ROUTEROS_IPTV_DHCP_IP"
+  done
+}
+
 collect_stb_manual() {
   STB_UID=$(ask 'IPTV 账号 UID')
   STB_MAC=$(ask '机顶盒 MAC 地址')
@@ -300,9 +353,10 @@ valid_ipv4() {
 
 configure_iptv_interface() {
   local answer interfaces_file=/etc/network/interfaces tmp backup
+  collect_routeros_iptv_ip
   echo
   echo 'IPTV 专网配置'
-  echo "即将把抓到的专网地址 $STB_IP/24 配置到 eth1。"
+  echo "即将把抓到的专网地址 $STB_IP/16 配置到 eth1。"
   echo '实体机顶盒和本机不能同时使用同一个专网 IP。'
   while :; do
     answer=$(ask '请关闭实体机顶盒；关闭后输入 YES，输入 SKIP 可暂不配置')
@@ -344,15 +398,21 @@ configure_iptv_interface() {
     printf '\n# BEGIN IPTV-SPIDER ETH1\n'
     printf 'auto eth1\n'
     printf 'iface eth1 inet static\n'
-    printf '\taddress %s/24\n' "$STB_IP"
+    printf '\taddress %s/16\n' "$STB_IP"
+    printf '\tup ip route replace 218.83.0.0/16 via %s dev eth1 src %s\n' "$ROUTEROS_IPTV_DHCP_IP" "$STB_IP"
+    printf '\tup ip route replace 222.68.0.0/16 via %s dev eth1 src %s\n' "$ROUTEROS_IPTV_DHCP_IP" "$STB_IP"
+    printf '\tup ip route replace 124.75.0.0/16 via %s dev eth1 src %s\n' "$ROUTEROS_IPTV_DHCP_IP" "$STB_IP"
     printf '# END IPTV-SPIDER ETH1\n'
   } > "$interfaces_file"
   rm -f "$tmp"
 
   ip link set eth1 up
   ip -4 addr flush dev eth1 scope global
-  ip addr add "$STB_IP/24" dev eth1
-  echo "eth1 已配置为 $STB_IP/24；未重启网络，当前 SSH 连接不受影响。"
+  ip addr add "$STB_IP/16" dev eth1
+  ip route replace "218.83.0.0/16" via "$ROUTEROS_IPTV_DHCP_IP" dev eth1 src "$STB_IP"
+  ip route replace "222.68.0.0/16" via "$ROUTEROS_IPTV_DHCP_IP" dev eth1 src "$STB_IP"
+  ip route replace "124.75.0.0/16" via "$ROUTEROS_IPTV_DHCP_IP" dev eth1 src "$STB_IP"
+  echo "eth1 已配置为 $STB_IP/16，并经 RouterOS $ROUTEROS_IPTV_DHCP_IP 添加 EPG/认证专网路由；未重启网络，当前 SSH 连接不受影响。"
   echo "原网络配置备份：$backup"
   systemctl restart iptv-spider
 }
@@ -373,7 +433,13 @@ if [ -f "$APP_DIR/config.yaml" ]; then
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl openssh-client mariadb-client
       fi
+      echo
+      echo '覆盖安装必须重新抓包机顶盒；原有数据库、回放配置和服务端口将保留。'
+      collect_stb_capture || { echo '覆盖安装因抓包失败而取消，未修改现有安装。'; exit 1; }
+      update_existing_stb_config
       upgrade_existing
+      configure_iptv_interface
+      show_routeros_iptv_commands
       exit $?
       ;;
     *) echo '安装已取消。'; exit 0 ;;
