@@ -22,7 +22,7 @@ secret() { local v; read -r -s -p "$1：" v; echo >&2; printf '%s' "$v"; }
 valid_ip() { [[ $1 =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
 free_vmid() {
   local n=${1:-100}
-  while pct config "$n" >/dev/null 2>&1; do
+  while pct config "$n" >/dev/null 2>&1 || qm config "$n" >/dev/null 2>&1; do
     n=$((n + 1))
   done
   echo "$n"
@@ -140,8 +140,8 @@ ct_menu() {
   [[ -n $tag ]] && net+=",tag=$tag"
   echo "创建 CT $vmid：$ip，模板 $template，网络 $net"
   [[ "$(ask '确认创建？输入 YES' 'NO')" =~ ^[Yy][Ee][Ss]$ ]] || { echo '已取消。'; return 0; }
-  if pct status "$vmid" >/dev/null 2>&1; then
-    echo "CT $vmid 已存在，停止创建。请重新运行菜单 2 选择下一个空闲 ID。"
+  if pct config "$vmid" >/dev/null 2>&1 || qm config "$vmid" >/dev/null 2>&1; then
+    echo "编号 $vmid 已被 CT 或虚拟机占用，停止创建。请重新运行菜单 2。"
     return 0
   fi
   pct create "$vmid" "$template" --hostname "$hostname" --rootfs "$storage:${disk}" --memory "$mem" --cores "$cores" --password "$password" --net0 "$net" --unprivileged 1 --features nesting=1 --onboot 1
