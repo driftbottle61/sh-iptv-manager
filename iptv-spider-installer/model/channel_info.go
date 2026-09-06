@@ -48,6 +48,9 @@ func (h *ChannelInfo) processData() {
 		h.IsHD = true
 		h.CommName = strings.ReplaceAll(name, "(高清)", "")
 	}
+	if h.CommName == "体育频道" {
+		h.CommName = "五星体育"
+	}
 }
 
 func (h *ChannelInfo) updateMapping(tx *gorm.DB) {

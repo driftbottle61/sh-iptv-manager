@@ -148,6 +148,20 @@ func (c *Client) FetchChannelList() {
 		return
 	}
 	global.LOG.Info(fmt.Sprintf("FetchChannelList Data Length: %d", len(respJson.Data)))
+	filtered := respJson.Data[:0]
+	for _, chanInfo := range respJson.Data {
+		channelName := strings.TrimSpace(strings.TrimSuffix(strings.ToUpper(chanInfo.Name), "HD"))
+		if channelName == "体育频道" || channelName == "高清导视" {
+			if channelName == "体育频道" {
+				global.LOG.Info("跳过重复体育频道，保留五星体育HD")
+			} else {
+				global.LOG.Info("跳过高清导视频道")
+			}
+			continue
+		}
+		filtered = append(filtered, chanInfo)
+	}
+	respJson.Data = filtered
 	for _, chanInfo := range respJson.Data {
 		global.LOG.Info("FetchChannelList Data:",
 			zap.Any("Channel Info", chanInfo))

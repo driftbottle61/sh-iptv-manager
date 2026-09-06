@@ -140,6 +140,12 @@ type tvodCacheEntry struct {
 	expiresAt time.Time
 }
 
+type tvodPlaySource struct {
+	playlistURL string
+	cookie      *http.Cookie
+	referer     string
+}
+
 var tvodCache = struct {
 	sync.RWMutex
 	entries map[string]tvodCacheEntry
@@ -147,12 +153,26 @@ var tvodCache = struct {
 
 // Keep redirects visible: the provider uses a 302 to signal an expired IPTV
 // session, and following it would turn this POST into an unrelated GET.
-var tvodHTTPClient = &http.Client{
-	Timeout: 15 * time.Second,
-	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-		return http.ErrUseLastResponse
-	},
+func iptvHTTPClient(timeout time.Duration, checkRedirect func(*http.Request, []*http.Request) error) *http.Client {
+	dialer := &net.Dialer{Timeout: 8 * time.Second}
+	if global.CONFIG != nil {
+		if ip := net.ParseIP(global.CONFIG.Stb.IP); ip != nil {
+			dialer.LocalAddr = &net.TCPAddr{IP: ip}
+		}
+	}
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			DialContext:           dialer.DialContext,
+			ResponseHeaderTimeout: 8 * time.Second,
+		},
+		CheckRedirect: checkRedirect,
+	}
 }
+
+var tvodHTTPClient = iptvHTTPClient(15*time.Second, func(_ *http.Request, _ []*http.Request) error {
+	return http.ErrUseLastResponse
+})
 
 var tvodAuthMu sync.Mutex
 
@@ -335,7 +355,7 @@ func streamCatchup(ctx iris.Context) {
 	}
 	global.LOG.Info(fmt.Sprintf("catchup request channel=%s start=%s duration=%s remote=%s", channelID, start.Format(time.RFC3339), duration, ctx.RemoteAddr()))
 
-	playURL, err := getTvodPlayURL(ctx.Request().Context(), channelID, start, duration)
+	playSource, err := getTvodPlayURL(ctx.Request().Context(), channelID, start, duration)
 	if err != nil {
 		global.LOG.Warn(fmt.Sprintf("catchup upstream failed channel=%s error=%s", channelID, err.Error()))
 		status := iris.StatusBadGateway
@@ -363,7 +383,7 @@ func streamCatchup(ctx iris.Context) {
 		ctx.Header("Cache-Control", "no-store")
 		ctx.Header("X-Accel-Buffering", "no")
 		for attempt := 0; attempt < 3; attempt++ {
-			written, relayErr := relayHLS(ctx.Request().Context(), playURL, ctx.ResponseWriter())
+			written, relayErr := relayHLSWithSource(ctx.Request().Context(), playSource, ctx.ResponseWriter())
 			if relayErr == nil || ctx.Request().Context().Err() != nil {
 				return
 			}
@@ -372,7 +392,7 @@ func streamCatchup(ctx iris.Context) {
 				return
 			}
 			global.LOG.Warn(fmt.Sprintf("catchup relay retry channel=%s attempt=%d error=%s", channelID, attempt+1, relayErr.Error()))
-			playURL, err = getTvodPlayURL(ctx.Request().Context(), channelID, start, duration)
+			playSource, err = getTvodPlayURL(ctx.Request().Context(), channelID, start, duration)
 			if err != nil {
 				global.LOG.Warn(fmt.Sprintf("catchup relay refresh failed channel=%s error=%s", channelID, err.Error()))
 				return
@@ -381,7 +401,7 @@ func streamCatchup(ctx iris.Context) {
 		return
 	}
 	ctx.Header("Cache-Control", "no-store")
-	ctx.Redirect(playURL, iris.StatusFound)
+	ctx.Redirect(playSource.playlistURL, iris.StatusFound)
 }
 
 func isPrivateClient(ip net.IP) bool {
@@ -402,11 +422,12 @@ func retryableRelayError(err error) bool {
 }
 
 func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) (int64, error) {
-	client := &http.Client{Transport: &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: 8 * time.Second}).DialContext,
-		ResponseHeaderTimeout: 8 * time.Second,
-	}}
-	current := playlistURL
+	return relayHLSWithSource(ctx, tvodPlaySource{playlistURL: playlistURL}, writer)
+}
+
+func relayHLSWithSource(ctx context.Context, source tvodPlaySource, writer io.Writer) (int64, error) {
+	client := iptvHTTPClient(0, nil)
+	current := source.playlistURL
 	seen := make(map[string]bool)
 	var written int64
 	for {
@@ -414,6 +435,7 @@ func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) (int64,
 		if err != nil {
 			return written, err
 		}
+		setHLSHeaders(request, source)
 		response, err := client.Do(request)
 		if err != nil {
 			return written, err
@@ -467,6 +489,7 @@ func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) (int64,
 			if err != nil {
 				return written, err
 			}
+			setHLSHeaders(req, source)
 			resp, err := client.Do(req)
 			if err != nil {
 				return written, err
@@ -500,10 +523,23 @@ func relayHLS(ctx context.Context, playlistURL string, writer io.Writer) (int64,
 	}
 }
 
-func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration time.Duration) (string, error) {
+func setHLSHeaders(request *http.Request, source tvodPlaySource) {
+	request.Header.Set("User-Agent", catchupUserAgent)
+	if source.referer != "" {
+		request.Header.Set("Referer", source.referer)
+		if parsed, err := url.Parse(source.referer); err == nil {
+			request.Header.Set("Origin", parsed.Scheme+"://"+parsed.Host)
+		}
+	}
+	if source.cookie != nil {
+		request.AddCookie(source.cookie)
+	}
+}
+
+func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration time.Duration) (tvodPlaySource, error) {
 	var info model.ChannelInfo
 	if err := global.DB.Where("mix_no = ?", mixNo).First(&info).Error; err != nil {
-		return "", err
+		return tvodPlaySource{}, err
 	}
 	var program model.EPGDetails
 	ms := start.UnixMilli()
@@ -512,7 +548,7 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 		exactProgram = false
 		if previousErr := global.DB.Where("comm_name = ? AND end_time <= ?", info.CommName, ms).Order("end_time DESC").First(&program).Error; previousErr != nil || ms-program.EndTime > int64(6*time.Hour/time.Millisecond) {
 			if nextErr := global.DB.Where("comm_name = ? AND start_time > ?", info.CommName, ms).Order("start_time ASC").First(&program).Error; nextErr != nil || program.StartTime-ms > int64(6*time.Hour/time.Millisecond) {
-				return "", &tvodError{status: http.StatusNotFound, msg: "catchup program not found"}
+				return tvodPlaySource{}, &tvodError{status: http.StatusNotFound, msg: "catchup program not found"}
 			}
 		}
 		global.LOG.Warn(fmt.Sprintf("catchup EPG gap fallback channel=%s requested=%s anchor=%s", mixNo, start.Format(time.RFC3339), program.ID))
@@ -528,7 +564,7 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 		requestedStart, requestedEnd = normalizeCatchupWindow(programStart, programEnd, requestedStart, requestedEnd)
 	}
 	if requestedEnd <= requestedStart {
-		return "", &tvodError{status: http.StatusRequestedRangeNotSatisfiable, msg: "TVOD request range is empty"}
+		return tvodPlaySource{}, &tvodError{status: http.StatusRequestedRangeNotSatisfiable, msg: "TVOD request range is empty"}
 	}
 	// Historical TVOD URLs are signed by the provider. Do not reuse them:
 	// a cached URL can return 401 while a freshly issued URL is valid.
@@ -553,24 +589,24 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 		form.Set("playbillID", anchorIDs[anchorIndex])
 		var authInfo model.AuthInfo
 		if err := global.DB.Order("updated_at DESC").First(&authInfo).Error; err != nil {
-			return "", err
+			return tvodPlaySource{}, err
 		}
 		endpoint := strings.TrimRight(authInfo.EPGHostUrl, "/") + "/function/ajax/epg7getChannelByAjax.jsp"
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 		if err != nil {
-			return "", err
+			return tvodPlaySource{}, err
 		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("User-Agent", catchupUserAgent)
 		req.AddCookie(&http.Cookie{Name: "JSESSIONID", Value: authInfo.JSESSIONID})
 		resp, err := tvodHTTPClient.Do(req)
 		if err != nil {
-			return "", err
+			return tvodPlaySource{}, err
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
 		if readErr != nil {
-			return "", readErr
+			return tvodPlaySource{}, readErr
 		}
 
 		if resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound ||
@@ -579,11 +615,11 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 			if !authRefreshUsed {
 				authRefreshUsed = true
 				if err := refreshTvodAuth(); err != nil {
-					return "", fmt.Errorf("refresh TVOD session: %w", err)
+					return tvodPlaySource{}, fmt.Errorf("refresh TVOD session: %w", err)
 				}
 				continue
 			}
-			return "", &tvodError{status: http.StatusUnauthorized, msg: "TVOD authentication rejected"}
+			return tvodPlaySource{}, &tvodError{status: http.StatusUnauthorized, msg: "TVOD authentication rejected"}
 		}
 
 		var out struct {
@@ -593,7 +629,7 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(body, &out); err != nil {
-			return "", err
+			return tvodPlaySource{}, err
 		}
 		if out.Status != "1" || out.Data.PlayURL == "" {
 			if anchorIndex+1 < len(anchorIDs) {
@@ -602,11 +638,11 @@ func getTvodPlayURL(ctx context.Context, mixNo string, start time.Time, duration
 				continue
 			}
 			global.LOG.Warn(fmt.Sprintf("TVOD URL unavailable channel=%s playbill=%s provider_status=%s", info.ChID, anchorIDs[anchorIndex], out.Status))
-			return "", &tvodError{status: http.StatusNotFound, msg: "TVOD program unavailable"}
+			return tvodPlaySource{}, &tvodError{status: http.StatusNotFound, msg: "TVOD program unavailable"}
 		}
-		return out.Data.PlayURL, nil
+		return tvodPlaySource{playlistURL: out.Data.PlayURL, cookie: &http.Cookie{Name: "JSESSIONID", Value: authInfo.JSESSIONID}, referer: endpoint}, nil
 	}
-	return "", errors.New("TVOD URL not issued")
+	return tvodPlaySource{}, errors.New("TVOD URL not issued")
 }
 
 func normalizeCatchupWindow(programStart, programEnd, requestedStart, requestedEnd int64) (int64, int64) {

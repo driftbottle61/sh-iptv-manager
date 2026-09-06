@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.2.31"
+VERSION="1.2.32"
 REPOSITORY="driftbottle61/sh-iptv-manager"
 ARCHIVE="sh-iptv-spider-installer-${VERSION}-linux-amd64.tar.gz"
 ARCHIVE_URL="https://github.com/${REPOSITORY}/releases/download/v${VERSION}/${ARCHIVE}"
-ARCHIVE_SHA256="b6b640a6df36ecd64db881496683476c0790ee4d51fc498efad3b9767247fdc6"
+CHECKSUM_URL="https://github.com/${REPOSITORY}/releases/download/v${VERSION}/${ARCHIVE}.sha256"
 
 if [ "$(uname -m)" != "x86_64" ]; then
   echo "目前仅支持 Linux amd64。" >&2
@@ -27,7 +27,8 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 
 echo "正在下载 IPTV Spider ${VERSION}..."
 curl -fL --retry 3 --retry-delay 2 -o "${WORK_DIR}/${ARCHIVE}" "$ARCHIVE_URL"
-echo "${ARCHIVE_SHA256}  ${WORK_DIR}/${ARCHIVE}" | sha256sum -c -
+curl -fL --retry 3 --retry-delay 2 -o "${WORK_DIR}/${ARCHIVE}.sha256" "$CHECKSUM_URL"
+(cd "$WORK_DIR" && sha256sum -c "${ARCHIVE}.sha256")
 
 tar -xzf "${WORK_DIR}/${ARCHIVE}" -C "$WORK_DIR"
 INSTALL_DIR="${WORK_DIR}/iptv-spider-installer"
