@@ -68,6 +68,20 @@ free_routeros_ip() {
   return 1
 }
 
+select_ct_storage() {
+  local requested=$1 available
+  available=$(pvesm status --content rootdir 2>/dev/null | awk 'NR > 1 && $1 != "" && $3 == "active" {print $1}')
+  if grep -qx "$requested" <<<"$available"; then
+    echo "$requested"
+    return 0
+  fi
+  if [[ -n "$available" ]]; then
+    echo "${available%%$'\n'*}"
+    return 0
+  fi
+  return 1
+}
+
 routeros_menu() {
   local host port user pass iface wan bridge v85 v51 option125
   host=$(ask 'RouterOS 地址' '192.168.100.1'); port=$(ask 'SSH 端口' '1314'); user=$(ask 'SSH 用户名' 'david_ni')
@@ -118,7 +132,7 @@ EOS
 }
 
 ct_menu() {
-  local storage template vmid hostname ip gw bridge tag mem disk cores password base host port user pass
+  local storage ct_storage template vmid hostname ip gw bridge tag mem disk cores password base host port user pass
   host=$(ask 'RouterOS 地址' '192.168.100.1'); port=$(ask 'SSH 端口' '1314'); user=$(ask 'SSH 用户名' 'david_ni'); pass=$(secret 'RouterOS 密码')
   scan_routeros "$host" "$port" "$user" "$pass"
   storage=$(ask 'PVE 存储' 'local'); hostname=$(ask 'CT 主机名' 'iptv-spider'); bridge=$(ask 'PVE IPTV Bridge' 'vmbr0v85'); tag=$(ask 'VLAN Tag（若 bridge 已解包则留空）' '')
@@ -134,6 +148,11 @@ ct_menu() {
     [[ -n $template ]] || { echo '无法找到 Debian 12 模板。'; return 1; }
     pveam download "$storage" "$template"
     template="/var/lib/vz/template/cache/$template"
+  fi
+  ct_storage=$(select_ct_storage "$storage") || { echo '没有找到支持 rootdir 的 PVE 存储，请检查 pvesm status。'; return 1; }
+  if [[ "$ct_storage" != "$storage" ]]; then
+    echo "存储 $storage 不支持 CT 根目录，自动改用：$ct_storage"
+    storage=$ct_storage
   fi
   password=$(secret 'CT root 密码')
   local net="name=eth0,bridge=$bridge,ip=$ip/16,gw=$gw"
