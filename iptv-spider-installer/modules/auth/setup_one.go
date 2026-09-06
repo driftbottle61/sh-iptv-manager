@@ -23,8 +23,12 @@ func (c *Client) pre4kLogAuth() *goquery.Document {
 }
 
 func (c *Client) r4kLogAuth(doc *goquery.Document) *goquery.Document {
+	if doc == nil || doc.Url == nil {
+		global.LOG.Error("R4K认证页面为空")
+		return nil
+	}
 	uri, method, formMap := utils.GetFromParamByHtml(doc)
-	if formMap == nil {
+	if formMap == nil || uri == "" {
 		global.LOG.Error("认证页面缺少唯一的 form 表单")
 		return nil
 	}
@@ -35,7 +39,7 @@ func (c *Client) r4kLogAuth(doc *goquery.Document) *goquery.Document {
 }
 
 func (c *Client) ottAuth(doc *goquery.Document) *goquery.Document {
-	if doc == nil {
+	if doc == nil || doc.Url == nil {
 		global.LOG.Error("认证服务器未返回有效页面")
 		return nil
 	}
@@ -44,7 +48,7 @@ func (c *Client) ottAuth(doc *goquery.Document) *goquery.Document {
 	AuthModel := model.NewAuthenticator(encryptToken, c.userID, c.sn, c.ip, c.macAddr)
 
 	uri, method, formMap := utils.GetFromParamByHtml(doc)
-	if formMap == nil {
+	if formMap == nil || uri == "" {
 		global.LOG.Error("认证页面缺少唯一的 form 表单")
 		return nil
 	}

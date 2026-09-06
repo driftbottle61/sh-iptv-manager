@@ -12,7 +12,15 @@ import (
 )
 
 func (c *Client) epgIndex(doc *goquery.Document) *goquery.Document {
+	if doc == nil || doc.Url == nil {
+		global.LOG.Error("EPG入口页面为空")
+		return nil
+	}
 	uri, method, formMap := utils.GetFromParamByHtml(doc, "form#epgform")
+	if formMap == nil || uri == "" {
+		global.LOG.Error("EPG入口缺少有效表单")
+		return nil
+	}
 	// 保存 Token
 	c.UserToken = formMap["UserToken"]
 	resp := c.httpClient.Request(uri, method, formMap)
@@ -20,6 +28,9 @@ func (c *Client) epgIndex(doc *goquery.Document) *goquery.Document {
 }
 
 func (c *Client) epgLoadBalance(doc *goquery.Document) *goquery.Document {
+	if doc == nil || doc.Url == nil {
+		return nil
+	}
 	var uri string
 	scs := utils.GetScriptsFormHtml(doc)
 	for _, sc := range scs {
@@ -41,7 +52,7 @@ func (c *Client) epgLoadBalance(doc *goquery.Document) *goquery.Document {
 		}
 	}
 	u, err := url.Parse(uri)
-	if err != nil {
+	if uri == "" || err != nil || u.Scheme == "" || u.Host == "" {
 		global.LOG.Error(err.Error())
 		return nil
 	}
@@ -51,7 +62,13 @@ func (c *Client) epgLoadBalance(doc *goquery.Document) *goquery.Document {
 }
 
 func (c *Client) epgPortalAuth(doc *goquery.Document) (*goquery.Document, error) {
+	if doc == nil || doc.Url == nil {
+		return nil, fmt.Errorf("EPG认证页面为空")
+	}
 	uri, method, formMap := utils.GetFromParamByHtml(doc, "form")
+	if formMap == nil || uri == "" {
+		return nil, fmt.Errorf("EPG认证页面缺少有效表单")
+	}
 
 	r := utils.RSA{}
 	r.LoadPriKey(utils.GetRSAPriKey())

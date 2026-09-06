@@ -46,6 +46,9 @@ func (c *Client) authSetupOne() *goquery.Document {
 	global.LOG.Info("认证流程一")
 	doc := c.pre4kLogAuth()
 	doc = c.r4kLogAuth(doc)
+	if doc == nil {
+		return nil
+	}
 	doc = c.ottAuth(doc)
 	if doc == nil {
 		return nil
@@ -63,7 +66,13 @@ func (c *Client) authSetupOne() *goquery.Document {
 func (c *Client) authSetupTwo() (*goquery.Document, error) {
 	global.LOG.Info("认证流程二")
 	doc := c.epgIndex(c.htmlDocTemp)
+	if doc == nil {
+		return nil, errors.New("EPG入口加载失败")
+	}
 	doc = c.epgLoadBalance(doc)
+	if doc == nil {
+		return nil, errors.New("EPG负载均衡页面加载失败")
+	}
 	doc, err := c.epgPortalAuth(doc)
 	if err != nil {
 		global.LOG.Info("认证流程结束, 出现错误")
@@ -83,15 +92,20 @@ func (c *Client) authSetupTwo() (*goquery.Document, error) {
 func (c *Client) StartAuth() error {
 	global.LOG.Info("开始认证流程")
 	previousAuthInfo := c.AuthInfo
+	previousDoc := c.htmlDocTemp
+	c.htmlDocTemp = nil
+	c.AuthInfo = previousAuthInfo
 	c.authSetupOne()
 	if c.htmlDocTemp == nil {
 		c.AuthInfo = previousAuthInfo
+		c.htmlDocTemp = previousDoc
 		c.updateCookies()
 		return errors.New("认证流程一失败：认证服务器页面无效或不可达")
 	}
 	_, err := c.authSetupTwo()
 	if err != nil {
 		c.AuthInfo = previousAuthInfo
+		c.htmlDocTemp = previousDoc
 		c.updateCookies()
 	}
 	return err
