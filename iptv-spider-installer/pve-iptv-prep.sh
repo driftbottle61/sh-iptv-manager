@@ -22,7 +22,7 @@ secret() { local v; read -r -s -p "$1：" v; echo >&2; printf '%s' "$v"; }
 valid_ip() { [[ $1 =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
 free_vmid() {
   local n=${1:-100} used
-  used=$(pct list 2>/dev/null | sed -nE 's/^[[:space:]]*([0-9]+)[[:space:]].*/\1/p')
+  used=$(pct list 2>/dev/null | awk '$1 ~ /^[0-9]+$/ {print $1}')
   while grep -qx "$n" <<<"$used"; do
     n=$((n + 1))
   done
@@ -124,7 +124,8 @@ ct_menu() {
   scan_routeros "$host" "$port" "$user" "$pass"
   storage=$(ask 'PVE 存储' 'local'); hostname=$(ask 'CT 主机名' 'iptv-spider'); bridge=$(ask 'PVE IPTV Bridge' 'vmbr0v85'); tag=$(ask 'VLAN Tag（若 bridge 已解包则留空）' '')
   mem=$(ask '内存 MB' '2048'); disk=$(ask '磁盘 GB' '16'); cores=$(ask 'CPU 核数' '2'); base=$(ask 'IP 网段前三段' '30.181.165'); gw=$(ask 'CT 网关（RouterOS IPTV DHCP 地址）' '30.181.165.222')
-  vmid=$(free_vmid "$(ask '起始 CT ID' '100')")
+  vmid=$(free_vmid 100)
+  echo "PVE 自动选择空闲 CT ID：$vmid"
   ip=$(free_routeros_ip "$host" "$port" "$user" "$pass" "$base" 2) || { echo 'RouterOS 未找到空闲 IPTV IP。'; return; }
   template=$(find /var/lib/vz/template/cache /mnt/pve/*/template/cache -maxdepth 1 -type f \( -name 'debian-12-standard*.tar.zst' -o -name 'debian-12-standard*.tar.xz' \) 2>/dev/null | head -1 || true)
   if [[ -z $template ]]; then
