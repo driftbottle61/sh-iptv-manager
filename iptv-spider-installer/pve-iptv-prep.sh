@@ -7,6 +7,16 @@ set -euo pipefail
 [[ $(id -u) -eq 0 ]] || { echo '请在 PVE Shell 以 root 运行。'; exit 1; }
 command -v pct >/dev/null || { echo '未检测到 pct，此脚本必须运行在 PVE 主机。'; exit 1; }
 
+ensure_sshpass() {
+  if command -v sshpass >/dev/null; then
+    return
+  fi
+  command -v apt-get >/dev/null || { echo '缺少 sshpass，且系统没有 apt-get，无法继续。'; return 1; }
+  echo '未检测到 sshpass，正在自动安装...'
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y sshpass
+}
+
 ask() { local p=$1 d=${2-} v; read -r -p "$p${d:+ [$d]}：" v; printf '%s' "${v:-$d}"; }
 secret() { local v; read -r -s -p "$1：" v; echo >&2; printf '%s' "$v"; }
 valid_ip() { [[ $1 =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
@@ -17,7 +27,7 @@ probe_routeros() {
   local host=$1 port=$2 user=$3 iface=$4 pass=$5 output probe
   probe=${IPTV_STB_PROBE:-$PWD/bin/stb-probe-linux-amd64}
   [[ -x $probe ]] || { echo "缺少抓包工具：$probe"; return 1; }
-  command -v sshpass >/dev/null || { echo '请先安装 sshpass：apt-get update && apt-get install -y sshpass'; return 1; }
+  ensure_sshpass || return 1
   output=$(mktemp)
   echo '即将抓包 90 秒，请现在重启或重新连接实体机顶盒。'
   SSHPASS="$pass" "$probe" -router "$host" -router-port "$port" -router-user "$user" -router-password-env SSHPASS -interface "$iface" -duration 90 | tee "$output"
@@ -30,6 +40,7 @@ probe_routeros() {
 
 scan_routeros() {
   local host=$1 port=$2 user=$3 pass=$4 scan
+  ensure_sshpass || return 1
   scan=$(mktemp)
   SSHPASS="$pass" sshpass -e ssh -o StrictHostKeyChecking=no -p "$port" "$user@$host" \
     '/interface bridge print detail; /interface bridge port print detail; /interface vlan print detail; /ip dhcp-client print detail; /ip dhcp-server option print detail; /routing igmp-proxy interface print detail' | tee "$scan"
