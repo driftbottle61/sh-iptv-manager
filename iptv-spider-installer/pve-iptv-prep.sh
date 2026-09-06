@@ -21,9 +21,8 @@ ask() { local p=$1 d=${2-} v; read -r -p "$p${d:+ [$d]}：" v; printf '%s' "${v:
 secret() { local v; read -r -s -p "$1：" v; echo >&2; printf '%s' "$v"; }
 valid_ip() { [[ $1 =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
 free_vmid() {
-  local n=${1:-100} used
-  used=$(pct list 2>/dev/null | awk '$1 ~ /^[0-9]+$/ {print $1}')
-  while grep -qx "$n" <<<"$used"; do
+  local n=${1:-100}
+  while pct config "$n" >/dev/null 2>&1; do
     n=$((n + 1))
   done
   echo "$n"
