@@ -202,3 +202,24 @@ CT 不直接把机顶盒 B 面网关作为二层邻居，而是以 RouterOS 的 
 `eth1` 路由下一跳；RouterOS 再经 `bridge_iptv` 转发到抓包得到的 B 面网关，并将
 CT 源地址 SNAT 为该 IPTV DHCP 地址。安装时会询问当前 `bridge_iptv` DHCP 地址，
 并把实际地址写入 Linux 持久化路由及 RouterOS 命令输出。
+
+## PVE Shell 前置准备脚本
+
+在 Proxmox VE 主机 Shell 以 root 运行：
+
+```bash
+./pve-iptv-prep.sh
+```
+
+脚本提供两个菜单：
+
+1. RouterOS：输入地址、SSH 端口、用户名、密码、IPTV 上联端口、PVE/机顶盒接入口、VLAN ID 和 Option 125，生成并在确认后执行 RouterOS 配置。
+2. CT：自动寻找 Debian 12 CT 模板；没有模板时使用 `pveam` 下载，选择未占用 CT ID 和未响应的 `30.181.165.0/24` 地址，创建接入 IPTV Bridge 的 Debian 12 CT。
+
+RouterOS 的 VLAN ID、上联端口、Bridge 端口和 Option 125 内容与运营商线路及现有配置强相关。首次使用建议选择不执行，仅审阅脚本打印的 RouterOS 命令；Option 125 还必须按现场 DHCP Server 结构绑定到对应网络。脚本不会自动删除已有 Bridge、VLAN、DHCP 或 IGMP 配置。
+
+前置准备脚本会在继续操作前强制抓取一次实体机顶盒流量：
+
+- 菜单 1 先从抓包结果识别 802.1Q VLAN 和 DHCP Option 125，再把识别值带入 RouterOS 配置预览。
+- 菜单 2 不抓包，只扫描 RouterOS 当前 Bridge、端口、VLAN、DHCP Client、Option 125 和 IGMP Proxy；扫描完成后才允许创建 CT。
+- 机顶盒抓包仅用于菜单 1 识别 VLAN/Option 125，或 CT 创建后由 `iptv-spider` 安装程序获取认证参数。

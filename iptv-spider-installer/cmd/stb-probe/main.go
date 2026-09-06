@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -202,6 +204,16 @@ func parsePCAP(path string) (map[string]string, error) {
 			break
 		}
 		p := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
+		if vlan := p.Layer(layers.LayerTypeDot1Q); vlan != nil {
+			v["vlan"] = strconv.Itoa(int(vlan.(*layers.Dot1Q).VLANIdentifier))
+		}
+		if dhcp := p.Layer(layers.LayerTypeDHCPv4); dhcp != nil {
+			for _, option := range dhcp.(*layers.DHCPv4).Options {
+				if byte(option.Type) == 125 {
+					v["option125"] = hex.EncodeToString(option.Data)
+				}
+			}
+		}
 		if ip := p.Layer(layers.LayerTypeIPv4); ip != nil {
 			i := ip.(*layers.IPv4)
 			if eth := p.Layer(layers.LayerTypeEthernet); eth != nil && i.SrcIP.IsPrivate() {
@@ -305,7 +317,7 @@ func findGzipStreams(data []byte) [][]byte {
 
 func printYAML(v map[string]string) {
 	fmt.Println("stb:")
-	for _, key := range []string{"uid", "mac", "sn", "type", "auth_host", "plane_a_ip", "plane_b_ip", "plane_b_gateway"} {
+	for _, key := range []string{"uid", "mac", "sn", "type", "auth_host", "plane_a_ip", "plane_b_ip", "plane_b_gateway", "vlan", "option125"} {
 		fmt.Printf("  %s: %q\n", key, v[key])
 	}
 	var missing []string
