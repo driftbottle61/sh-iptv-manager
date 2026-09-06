@@ -86,7 +86,7 @@ add name=iptv-option125 code=125 value=0x$option125 comment="Shanghai Telecom IP
 EOS
   fi
   echo; echo '将执行以下 RouterOS 配置：'; cat "$tmp"; echo
-  [[ $(ask '确认执行？输入 YES' 'NO') == YES ]] || { rm -f "$tmp"; echo '已取消。'; return; }
+  [[ "$(ask '确认执行？输入 YES' 'NO')" =~ ^[Yy][Ee][Ss]$ ]] || { rm -f "$tmp"; echo '已取消。'; return 0; }
   if command -v sshpass >/dev/null; then
     SSHPASS="$pass" sshpass -e ssh -o StrictHostKeyChecking=no -p "$port" "$user@$host" <"$tmp"
   else
@@ -116,7 +116,7 @@ ct_menu() {
   local net="name=eth0,bridge=$bridge,ip=$ip/16,gw=$gw"
   [[ -n $tag ]] && net+=",tag=$tag"
   echo "创建 CT $vmid：$ip，模板 $template，网络 $net"
-  [[ $(ask '确认创建？输入 YES' 'NO') == YES ]] || return
+  [[ "$(ask '确认创建？输入 YES' 'NO')" =~ ^[Yy][Ee][Ss]$ ]] || { echo '已取消。'; return 0; }
   pct create "$vmid" "$template" --hostname "$hostname" --rootfs "$storage:${disk}" --memory "$mem" --cores "$cores" --password "$password" --net0 "$net" --unprivileged 1 --features nesting=1 --onboot 1
   pct set "$vmid" --description 'IPTV Spider prepared by pve-iptv-prep.sh'
   pct start "$vmid"
