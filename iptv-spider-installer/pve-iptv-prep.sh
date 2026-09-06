@@ -20,8 +20,7 @@ ensure_sshpass() {
 ask() { local p=$1 d=${2-} v; read -r -p "$p${d:+ [$d]}：" v; printf '%s' "${v:-$d}"; }
 secret() { local v; read -r -s -p "$1：" v; echo >&2; printf '%s' "$v"; }
 valid_ip() { [[ $1 =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
-free_vmid() { local n=${1:-100}; while pct status "$n" >/dev/null 2>&1; do ((n++)); done; echo "$n"; }
-free_ip() { local base=$1 n=${2:-90} ip; while ((n < 255)); do ip="$base.$n"; if ! ping -c1 -W1 "$ip" >/dev/null 2>&1 && ! ip neigh show "$ip" 2>/dev/null | grep -Eq '\b(REACHABLE|STALE|DELAY|PROBE|PERMANENT)\b'; then echo "$ip"; return; fi; ((n++)); done; return 1; }
+free_vmid() { local n=${1:-100} used; used=$(pct list 2>/dev/null | awk 'NR>1 {print $1}'); while grep -qx "$n" <<<"$used"; do ((n++)); done; echo "$n"; }
 
 probe_routeros() {
   local host=$1 port=$2 user=$3 iface=$4 pass=$5 output probe
@@ -43,8 +42,24 @@ scan_routeros() {
   ensure_sshpass || return 1
   scan=$(mktemp)
   SSHPASS="$pass" sshpass -e ssh -o StrictHostKeyChecking=no -p "$port" "$user@$host" \
-    '/interface bridge print detail; /interface bridge port print detail; /interface vlan print detail; /ip dhcp-client print detail; /ip dhcp-server option print detail; /routing igmp-proxy interface print detail' | tee "$scan"
+    '/interface bridge print detail; /interface bridge port print detail; /interface vlan print detail; /ip dhcp-client print detail; /ip dhcp-server option print detail; /routing igmp-proxy interface print detail; /ip dhcp-server lease print detail; /ip arp print detail' | tee "$scan"
   echo "RouterOS 扫描结果已保存：$scan"
+  ROUTEROS_SCAN_FILE=$scan
+}
+
+free_routeros_ip() {
+  local host=$1 port=$2 user=$3 pass=$4 base=$5 start=${6:-90} used n ip
+  used=$(SSHPASS="$pass" sshpass -e ssh -o StrictHostKeyChecking=no -p "$port" "$user@$host" \
+    '/ip dhcp-server lease print detail; /ip arp print detail' 2>/dev/null | \
+    sed -nE 's/.*address=([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | sort -u)
+  for ((n=start; n<255; n++)); do
+    ip="$base.$n"
+    if [[ "$ip" != "$base.1" && "$ip" != "$base.222" ]] && ! grep -qx "$ip" <<<"$used"; then
+      echo "$ip"
+      return 0
+    fi
+  done
+  return 1
 }
 
 routeros_menu() {
@@ -102,7 +117,8 @@ ct_menu() {
   scan_routeros "$host" "$port" "$user" "$pass"
   storage=$(ask 'PVE 存储' 'local'); hostname=$(ask 'CT 主机名' 'iptv-spider'); bridge=$(ask 'PVE IPTV Bridge' 'vmbr0v85'); tag=$(ask 'VLAN Tag（若 bridge 已解包则留空）' '')
   mem=$(ask '内存 MB' '2048'); disk=$(ask '磁盘 GB' '16'); cores=$(ask 'CPU 核数' '2'); base=$(ask 'IP 网段前三段' '30.181.165'); gw=$(ask 'CT 网关（RouterOS IPTV DHCP 地址）' '30.181.165.222')
-  vmid=$(free_vmid "$(ask '起始 CT ID' '100')"); ip=$(free_ip "$base" "$(ask '起始主机号' '90')") || { echo '找不到空闲 IP。'; return; }
+  vmid=$(free_vmid "$(ask '起始 CT ID' '100')")
+  ip=$(free_routeros_ip "$host" "$port" "$user" "$pass" "$base" 2) || { echo 'RouterOS 未找到空闲 IPTV IP。'; return; }
   template=$(find /var/lib/vz/template/cache /mnt/pve/*/template/cache -maxdepth 1 -type f \( -name 'debian-12-standard*.tar.zst' -o -name 'debian-12-standard*.tar.xz' \) 2>/dev/null | head -1 || true)
   if [[ -z $template ]]; then
     echo '未找到 Debian 12 CT 模板，尝试下载。'
