@@ -20,7 +20,14 @@ ensure_sshpass() {
 ask() { local p=$1 d=${2-} v; read -r -p "$p${d:+ [$d]}：" v; printf '%s' "${v:-$d}"; }
 secret() { local v; read -r -s -p "$1：" v; echo >&2; printf '%s' "$v"; }
 valid_ip() { [[ $1 =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; }
-free_vmid() { local n=${1:-100} used; used=$(pct list 2>/dev/null | awk 'NR>1 {print $1}'); while grep -qx "$n" <<<"$used"; do ((n++)); done; echo "$n"; }
+free_vmid() {
+  local n=${1:-100} used
+  used=$(pct list 2>/dev/null | sed -nE 's/^[[:space:]]*([0-9]+)[[:space:]].*/\1/p')
+  while grep -qx "$n" <<<"$used"; do
+    n=$((n + 1))
+  done
+  echo "$n"
+}
 
 probe_routeros() {
   local host=$1 port=$2 user=$3 iface=$4 pass=$5 output probe
@@ -133,6 +140,10 @@ ct_menu() {
   [[ -n $tag ]] && net+=",tag=$tag"
   echo "创建 CT $vmid：$ip，模板 $template，网络 $net"
   [[ "$(ask '确认创建？输入 YES' 'NO')" =~ ^[Yy][Ee][Ss]$ ]] || { echo '已取消。'; return 0; }
+  if pct status "$vmid" >/dev/null 2>&1; then
+    echo "CT $vmid 已存在，停止创建。请重新运行菜单 2 选择下一个空闲 ID。"
+    return 0
+  fi
   pct create "$vmid" "$template" --hostname "$hostname" --rootfs "$storage:${disk}" --memory "$mem" --cores "$cores" --password "$password" --net0 "$net" --unprivileged 1 --features nesting=1 --onboot 1
   pct set "$vmid" --description 'IPTV Spider prepared by pve-iptv-prep.sh'
   pct start "$vmid"
