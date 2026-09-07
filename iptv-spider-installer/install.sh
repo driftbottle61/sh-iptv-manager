@@ -181,14 +181,29 @@ EOF
 
 collect_routeros_iptv_ip() {
   if [ -n "${ROUTER_HOST:-}" ] && [ -n "${ROUTER_USER:-}" ]; then
-    local detected
-    detected=$(routeros_ssh_command '/ip dhcp-client get [find interface=bridge_iptv] address' 2>/dev/null || true)
-    detected=${detected%%/*}
+    local detected query_error route_gateway
+    query_error=$(mktemp /tmp/routeros-iptv-query.XXXXXX)
+    detected=$(routeros_ssh_command '/ip dhcp-client get [find interface=bridge_iptv] address' 2>"$query_error" || true)
+    detected=$(printf '%s' "$detected" | tr -d '\r' | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n 1 || true)
     if valid_ipv4 "${detected:-}"; then
       ROUTEROS_IPTV_DHCP_IP=$detected
+      rm -f "$query_error"
       echo "已从 RouterOS 自动检测 IPTV DHCP 地址：$ROUTEROS_IPTV_DHCP_IP"
       return 0
     fi
+    route_gateway=$(ip route show 30.181.0.0/16 2>/dev/null | sed -n 's/.* via \([0-9.]*\) .*/\1/p' | head -n 1 || true)
+    if valid_ipv4 "${route_gateway:-}"; then
+      ROUTEROS_IPTV_DHCP_IP=$route_gateway
+      rm -f "$query_error"
+      echo "RouterOS DHCP 查询未返回地址，已从现有 IPTV 路由恢复：$ROUTEROS_IPTV_DHCP_IP"
+      return 0
+    fi
+    echo '无法自动读取 RouterOS bridge_iptv DHCP 地址。'
+    if [ -s "$query_error" ]; then
+      echo 'RouterOS SSH 错误：'
+      sed -n '1,3p' "$query_error"
+    fi
+    rm -f "$query_error"
   fi
   while :; do
     ROUTEROS_IPTV_DHCP_IP=$(ask 'RouterOS bridge_iptv 当前 IPTV DHCP 地址' "${ROUTEROS_IPTV_DHCP_IP:-}")
