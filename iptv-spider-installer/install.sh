@@ -142,16 +142,22 @@ update_existing_stb_config() {
   AUTH_HOST=$(yaml_escape "$AUTH_HOST")
   STB_PLANE_A_IP=$(yaml_escape "$STB_PLANE_A_IP")
   STB_PLANE_B_GATEWAY=$(yaml_escape "$STB_PLANE_B_GATEWAY")
-  sed -i \
-    -e "0,/^  uid: /s//  uid: '$STB_UID'/" \
-    -e "0,/^  mac: /s//  mac: '$STB_MAC'/" \
-    -e "0,/^  sn: /s//  sn: '$STB_SN'/" \
-    -e "0,/^  ip: /s//  ip: '$STB_IP'/" \
-    -e "0,/^  type: /s//  type: '$STB_TYPE'/" \
-    -e "0,/^  auth_host: /s//  auth_host: '$AUTH_HOST'/" \
-    -e "0,/^  plane_a_ip: /s//  plane_a_ip: '$STB_PLANE_A_IP'/" \
-    -e "0,/^  plane_b_gateway: /s//  plane_b_gateway: '$STB_PLANE_B_GATEWAY'/" \
-    "$config_file"
+  awk -v uid="$STB_UID" -v mac="$STB_MAC" -v sn="$STB_SN" \
+    -v ip="$STB_IP" -v type="$STB_TYPE" -v auth_host="$AUTH_HOST" \
+    -v plane_a_ip="$STB_PLANE_A_IP" -v plane_b_gateway="$STB_PLANE_B_GATEWAY" '
+    /^stb:[[:space:]]*$/ { in_stb=1; print; next }
+    in_stb && /^[^[:space:]]/ { in_stb=0 }
+    in_stb && /^  uid:/ { print "  uid: '\''" uid "'\''"; next }
+    in_stb && /^  mac:/ { print "  mac: '\''" mac "'\''"; next }
+    in_stb && /^  sn:/ { print "  sn: '\''" sn "'\''"; next }
+    in_stb && /^  ip:/ { print "  ip: '\''" ip "'\''"; next }
+    in_stb && /^  type:/ { print "  type: '\''" type "'\''"; next }
+    in_stb && /^  auth_host:/ { print "  auth_host: '\''" auth_host "'\''"; next }
+    in_stb && /^  plane_a_ip:/ { print "  plane_a_ip: '\''" plane_a_ip "'\''"; next }
+    in_stb && /^  plane_b_gateway:/ { print "  plane_b_gateway: '\''" plane_b_gateway "'\''"; next }
+    { print }
+  ' "$config_file" > "${config_file}.tmp"
+  mv "${config_file}.tmp" "$config_file"
   echo "已更新机顶盒字段，原配置备份：$backup"
 }
 
