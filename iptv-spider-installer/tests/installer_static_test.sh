@@ -8,6 +8,7 @@ bash -n "$ROOT/uninstall.sh"
 bash -n "$ROOT/status.sh"
 bash -n "$ROOT/manage.sh"
 bash -n "$ROOT/install-oneclick.sh"
+bash -n "$ROOT/iptv-routeros-sync"
 
 installer_version=$(cat "$ROOT/VERSION")
 oneclick_version=$(sed -n 's/^VERSION="\([^"]*\)"$/\1/p' "$ROOT/install-oneclick.sh")
@@ -47,6 +48,11 @@ grep -q 'Where("start_time >= ?", epgHistoryBoundary(time.Now(), daysAgo))' "$RO
 grep -q 'return name + "【已过期】"' "$ROOT/modules/auth/epg_window.go"
 grep -q '通用播放源.*tv.m3u' "$ROOT/install.sh"
 grep -q 'IPTV# 专用播放源.*iptvsharp.m3u' "$ROOT/install.sh"
+grep -q 'install_routeros_sync' "$ROOT/install.sh"
+grep -q 'bridge_iptv' "$ROOT/iptv-routeros-sync"
+grep -q 'iptv-spider CT EPG SNAT' "$ROOT/iptv-routeros-sync"
+test -f "$ROOT/systemd/iptv-routeros-sync.service"
+test -f "$ROOT/systemd/iptv-routeros-sync.timer"
 
 test -x "$ROOT/install.sh"
 test -x "$ROOT/uninstall.sh"

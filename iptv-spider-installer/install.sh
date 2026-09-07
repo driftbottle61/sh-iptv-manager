@@ -174,6 +174,16 @@ EOF
 }
 
 collect_routeros_iptv_ip() {
+  if [ -n "${ROUTER_HOST:-}" ] && [ -n "${ROUTER_USER:-}" ]; then
+    local detected
+    detected=$(routeros_ssh_command '/ip dhcp-client get [find interface=bridge_iptv] address' 2>/dev/null || true)
+    detected=${detected%%/*}
+    if valid_ipv4 "${detected:-}"; then
+      ROUTEROS_IPTV_DHCP_IP=$detected
+      echo "已从 RouterOS 自动检测 IPTV DHCP 地址：$ROUTEROS_IPTV_DHCP_IP"
+      return 0
+    fi
+  fi
   while :; do
     ROUTEROS_IPTV_DHCP_IP=$(ask 'RouterOS bridge_iptv 当前 IPTV DHCP 地址' "${ROUTEROS_IPTV_DHCP_IP:-}")
     if valid_ipv4 "$ROUTEROS_IPTV_DHCP_IP"; then
@@ -181,6 +191,54 @@ collect_routeros_iptv_ip() {
     fi
     echo "RouterOS IPTV DHCP 地址格式无效：$ROUTEROS_IPTV_DHCP_IP"
   done
+}
+
+routeros_ssh_command() {
+  local command=$1
+  if [ -n "${ROUTER_PASSWORD:-}" ]; then
+    SSHPASS="$ROUTER_PASSWORD" sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -p "$ROUTER_PORT" "$ROUTER_USER@$ROUTER_HOST" "$command"
+  else
+    ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -i "$ROUTER_KEY" -p "$ROUTER_PORT" "$ROUTER_USER@$ROUTER_HOST" "$command"
+  fi
+}
+
+install_routeros_sync() {
+  local sync_conf=/etc/iptv-spider/routeros-sync.conf
+  if [ -z "${ROUTER_KEY:-}" ]; then
+    ROUTER_KEY=$(ask '自动同步使用的 RouterOS SSH 私钥路径（留空则不启用自动同步）' '')
+    if [ -z "$ROUTER_KEY" ]; then
+      echo '未配置 SSH 私钥，已跳过自动 RouterOS DHCP 同步。'
+      echo '以后配置密钥后可手工创建 /etc/iptv-spider/routeros-sync.conf 并启用 timer。'
+      return 0
+    fi
+    if [ ! -r "$ROUTER_KEY" ]; then
+      echo "SSH 私钥无法读取：$ROUTER_KEY，已跳过自动同步。"
+      return 0
+    fi
+  fi
+  install -d -m 0755 /etc/iptv-spider /var/lib/iptv-spider
+  cat > "$sync_conf" <<EOF
+router_host=$(printf '%q' "$ROUTER_HOST")
+router_port=$(printf '%q' "$ROUTER_PORT")
+router_user=$(printf '%q' "$ROUTER_USER")
+router_key=$(printf '%q' "${ROUTER_KEY:-}")
+router_interface=bridge_iptv
+ct_interface=eth1
+ct_ip=$(printf '%q' "$STB_IP")
+routes='218.83.0.0/16 222.68.0.0/16 124.75.0.0/16'
+nat_comments='iptv-spider CT EPG SNAT|iptv-spider CT auth SNAT|iptv-spider CT auth CDN SNAT'
+filter_comments='iptv-spider CT EPG forwarding|iptv-spider CT auth forwarding|iptv-spider CT auth CDN forwarding'
+EOF
+  echo 'router_password_mode=key' >> "$sync_conf"
+  chmod 600 "$sync_conf"
+  install -m 0755 "$SCRIPT_DIR/iptv-routeros-sync" /usr/local/sbin/iptv-routeros-sync
+  install -m 0644 "$SCRIPT_DIR/systemd/iptv-routeros-sync.service" /etc/systemd/system/iptv-routeros-sync.service
+  install -m 0644 "$SCRIPT_DIR/systemd/iptv-routeros-sync.timer" /etc/systemd/system/iptv-routeros-sync.timer
+  systemctl daemon-reload
+  systemctl enable --now iptv-routeros-sync.timer
+  systemctl start iptv-routeros-sync.service || true
 }
 
 collect_stb_manual() {
@@ -280,13 +338,13 @@ collect_stb_capture() {
 
     if [ "$capture_ok" -eq 0 ] && [ -n "$STB_UID" ] && [ -n "$STB_MAC" ] && [ -n "$STB_SN" ] && [ -n "$STB_IP" ] && [ -n "$AUTH_HOST" ]; then
       echo '抓包完成，以上数据将自动写入 config.yaml。'
-      unset STB_PROBE_ROUTER_PASSWORD ROUTER_PASSWORD
+      unset STB_PROBE_ROUTER_PASSWORD
       return 0
     fi
     echo '本次抓包没有取得全部必需的认证字段。'
     answer=$(ask '输入 R 重新抓包，或输入 M 改为手工填写' 'R')
     case "$answer" in
-      [Mm]*) unset STB_PROBE_ROUTER_PASSWORD ROUTER_PASSWORD; return 1 ;;
+      [Mm]*) unset STB_PROBE_ROUTER_PASSWORD; return 1 ;;
     esac
   done
 }
@@ -412,6 +470,8 @@ configure_iptv_interface() {
   ip route replace "218.83.0.0/16" via "$ROUTEROS_IPTV_DHCP_IP" dev eth1 src "$STB_IP"
   ip route replace "222.68.0.0/16" via "$ROUTEROS_IPTV_DHCP_IP" dev eth1 src "$STB_IP"
   ip route replace "124.75.0.0/16" via "$ROUTEROS_IPTV_DHCP_IP" dev eth1 src "$STB_IP"
+  install_routeros_sync
+  unset STB_PROBE_ROUTER_PASSWORD ROUTER_PASSWORD
   echo "eth1 已配置为 $STB_IP/16，并经 RouterOS $ROUTEROS_IPTV_DHCP_IP 添加 EPG/认证专网路由；未重启网络，当前 SSH 连接不受影响。"
   echo "原网络配置备份：$backup"
   systemctl restart iptv-spider

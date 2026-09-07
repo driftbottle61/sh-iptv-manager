@@ -223,3 +223,20 @@ RouterOS 的 VLAN ID、上联端口、Bridge 端口和 Option 125 内容与运�
 - 菜单 1 先从抓包结果识别 802.1Q VLAN 和 DHCP Option 125，再把识别值带入 RouterOS 配置预览。
 - 菜单 2 不抓包，只扫描 RouterOS 当前 Bridge、端口、VLAN、DHCP Client、Option 125 和 IGMP Proxy；扫描完成后才允许创建 CT。
 - 机顶盒抓包仅用于菜单 1 识别 VLAN/Option 125，或 CT 创建后由 `iptv-spider` 安装程序获取认证参数。
+
+### RouterOS IPTV DHCP 地址自动同步
+
+安装时若选择配置 RouterOS SSH 公钥，安装器会自动读取 `bridge_iptv` 的 DHCP 租约，并安装 `iptv-routeros-sync.timer` 每分钟检查一次。租约变化后会同步：
+
+- CT `eth1` 的 EPG/认证专网路由；
+- `/etc/network/interfaces` 中 IPTV 路由的持久化下一跳；
+- RouterOS 中带有 `iptv-spider CT ... SNAT` 注释的 NAT 规则。
+
+查看状态和日志：
+
+```bash
+systemctl status iptv-routeros-sync.timer
+journalctl -u iptv-routeros-sync.service -n 50 --no-pager
+```
+
+自动同步不保存 RouterOS 明文密码，建议先配置仅允许 RouterOS 管理 SSH 登录的密钥。若安装时跳过密钥，仍可手工配置 `/etc/iptv-spider/routeros-sync.conf` 后启用该 timer。
