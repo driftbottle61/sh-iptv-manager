@@ -68,6 +68,18 @@ free_routeros_ip() {
   return 1
 }
 
+free_lan_ip() {
+  local base=$1 start=${2:-90} n ip
+  for ((n=start; n<255; n++)); do
+    ip="$base.$n"
+    if ! ping -c1 -W1 "$ip" >/dev/null 2>&1 && ! ip neigh show "$ip" 2>/dev/null | grep -Eq '\b(REACHABLE|STALE|DELAY|PROBE|PERMANENT)\b'; then
+      echo "$ip"
+      return 0
+    fi
+  done
+  return 1
+}
+
 select_ct_storage() {
   local requested=$1 available
   available=$(pvesm status --content rootdir 2>/dev/null | awk 'NR > 1 && $1 != "" && $3 == "active" {print $1}')
@@ -132,13 +144,15 @@ EOS
 }
 
 ct_menu() {
-  local storage ct_storage template vmid hostname ip gw bridge tag mem disk cores password base host port user pass
+  local storage ct_storage template vmid hostname ip gw bridge tag mem disk cores password base host port user pass mgmt_bridge mgmt_ip mgmt_gw
   host=$(ask 'RouterOS 地址' '192.168.100.1'); port=$(ask 'SSH 端口' '1314'); user=$(ask 'SSH 用户名' 'david_ni'); pass=$(secret 'RouterOS 密码')
   scan_routeros "$host" "$port" "$user" "$pass"
-  storage=$(ask 'PVE 存储' 'local'); hostname=$(ask 'CT 主机名' 'iptv-spider'); bridge=$(ask 'PVE IPTV Bridge' 'vmbr0v85'); tag=$(ask 'VLAN Tag（若 bridge 已解包则留空）' '')
+  storage=$(ask 'PVE 存储' 'local'); hostname=$(ask 'CT 主机名' 'iptv-spider'); mgmt_bridge=$(ask 'PVE 管理网 Bridge' 'vmbr0'); mgmt_gw=$(ask '管理网网关' '192.168.100.1'); bridge=$(ask 'PVE IPTV Bridge' 'vmbr0v85'); tag=$(ask 'VLAN Tag（若 bridge 已解包则留空）' '')
   mem=$(ask '内存 MB' '2048'); disk=$(ask '磁盘 GB' '16'); cores=$(ask 'CPU 核数' '2'); base=$(ask 'IP 网段前三段' '30.181.165'); gw=$(ask 'CT 网关（RouterOS IPTV DHCP 地址）' '30.181.165.222')
   vmid=$(free_vmid 100)
   echo "PVE 自动选择空闲 CT ID：$vmid"
+  mgmt_ip=$(free_lan_ip '192.168.100' 90) || { echo '管理网未找到空闲 192.168.100.x 地址。'; return; }
+  echo "PVE 自动选择管理网 IP：$mgmt_ip"
   ip=$(free_routeros_ip "$host" "$port" "$user" "$pass" "$base" 2) || { echo 'RouterOS 未找到空闲 IPTV IP。'; return; }
   template=$(find /var/lib/vz/template/cache /mnt/pve/*/template/cache -maxdepth 1 -type f \( -name 'debian-12-standard*.tar.zst' -o -name 'debian-12-standard*.tar.xz' \) 2>/dev/null | head -1 || true)
   if [[ -z $template ]]; then
@@ -155,19 +169,21 @@ ct_menu() {
     storage=$ct_storage
   fi
   password=$(secret 'CT root 密码')
-  local net="name=eth0,bridge=$bridge,ip=$ip/16,gw=$gw"
-  [[ -n $tag ]] && net+=",tag=$tag"
-  echo "创建 CT $vmid：$ip，模板 $template，网络 $net"
+  local mgmt_net="name=eth0,bridge=$mgmt_bridge,ip=$mgmt_ip/24,gw=$mgmt_gw"
+  local iptv_net="name=eth1,bridge=$bridge,ip=$ip/16"
+  [[ -n $tag ]] && iptv_net+=",tag=$tag"
+  echo "创建 CT $vmid：管理网 $mgmt_ip，IPTV 网 $ip，模板 $template"
   [[ "$(ask '确认创建？输入 YES' 'NO')" =~ ^[Yy][Ee][Ss]$ ]] || { echo '已取消。'; return 0; }
   if pct config "$vmid" >/dev/null 2>&1 || qm config "$vmid" >/dev/null 2>&1; then
     echo "编号 $vmid 已被 CT 或虚拟机占用，停止创建。请重新运行菜单 2。"
     return 0
   fi
-  pct create "$vmid" "$template" --hostname "$hostname" --rootfs "$storage:${disk}" --memory "$mem" --cores "$cores" --password "$password" --net0 "$net" --unprivileged 1 --features nesting=1 --onboot 1
+  pct create "$vmid" "$template" --hostname "$hostname" --rootfs "$storage:${disk}" --memory "$mem" --cores "$cores" --password "$password" --net0 "$mgmt_net" --net1 "$iptv_net" --unprivileged 1 --features nesting=1 --onboot 1
   pct set "$vmid" --description 'IPTV Spider prepared by pve-iptv-prep.sh'
   pct start "$vmid"
   pct exec "$vmid" -- sh -c 'mkdir -p /etc/ssh/sshd_config.d && printf "%s\n" "PermitRootLogin yes" "PasswordAuthentication yes" > /etc/ssh/sshd_config.d/99-iptv-spider-root-login.conf && if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet ssh 2>/dev/null; then systemctl restart ssh; elif command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet sshd 2>/dev/null; then systemctl restart sshd; fi'
-  echo; echo "CT 已创建：VMID=$vmid IP=$ip 网关=$gw Bridge=$bridge"
+  pct exec "$vmid" -- sh -c "for route in '30.181.0.0/16' '218.83.0.0/16' '222.68.0.0/16' '124.75.0.0/16'; do ip route replace \"\$route\" via $gw dev eth1 src $ip; done" || true
+  echo; echo "CT 已创建：VMID=$vmid 管理网=$mgmt_ip IPTV=$ip 管理网关=$mgmt_gw IPTV 网关=$gw"
   echo 'root 已启用密码登录；密码为本次创建时输入的 root 密码。'
   echo "下一步：在该 CT 内运行 IPTV Spider 安装程序，并通过 RouterOS 抓取机顶盒参数。"
 }
