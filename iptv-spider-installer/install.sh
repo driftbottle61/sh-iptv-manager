@@ -471,7 +471,7 @@ configure_iptv_interface() {
   configure_routeros_iptv_routes
   echo
   echo 'IPTV 专网配置'
-  echo "即将把抓到的专网地址 $STB_IP/16 配置到 eth1。"
+  echo "即将使用 CT 当前 eth1 地址 $STB_IP/16 配置 IPTV 专网。"
   echo '实体机顶盒和本机不能同时使用同一个专网 IP。'
   while :; do
     answer=$(ask '请关闭实体机顶盒；关闭后输入 YES，输入 SKIP 可暂不配置')

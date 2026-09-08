@@ -5,6 +5,9 @@ router_interface=${router_interface:-bridge_iptv}
 STATE=/var/lib/iptv-spider/routeros-iptv-ip
 LOG_TAG=iptv-routeros-sync
 valid_ipv4() { [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1; local p; IFS=. read -r -a a <<< "$1"; for p in "${a[@]}"; do ((p >= 0 && p <= 255)) || return 1; done; }
+ct_interface=${ct_interface:-eth1}
+ct_ip=$(ip -4 -o addr show dev "$ct_interface" scope global 2>/dev/null | awk '{split($4,a,"/"); print a[1]; exit}')
+if ! valid_ipv4 "${ct_ip:-}"; then logger -t "$LOG_TAG" "no IPv4 address on $ct_interface"; exit 0; fi
 ros() { ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$router_key" -p "$router_port" "$router_user@$router_host" "$1"; }
 address=$(ros "/ip dhcp-client get [find interface=$router_interface] address" 2>/dev/null | tr -d '\r' | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n 1 || true)
 if ! valid_ipv4 "$address"; then logger -t "$LOG_TAG" "DHCP lease unavailable on $router_interface"; exit 0; fi

@@ -157,10 +157,8 @@ var tvodCache = struct {
 // session, and following it would turn this POST into an unrelated GET.
 func iptvHTTPClient(timeout time.Duration, checkRedirect func(*http.Request, []*http.Request) error) *http.Client {
 	dialer := &net.Dialer{Timeout: 8 * time.Second}
-	if global.CONFIG != nil {
-		if ip := net.ParseIP(global.CONFIG.Stb.IP); ip != nil {
-			dialer.LocalAddr = &net.TCPAddr{IP: ip}
-		}
+	if ip := currentIPTVSourceIP(); ip != nil {
+		dialer.LocalAddr = &net.TCPAddr{IP: ip}
 	}
 	return &http.Client{
 		Timeout: timeout,
@@ -170,6 +168,35 @@ func iptvHTTPClient(timeout time.Duration, checkRedirect func(*http.Request, []*
 		},
 		CheckRedirect: checkRedirect,
 	}
+}
+
+func currentIPTVSourceIP() net.IP {
+	interfaceName := os.Getenv("IPTV_INTERFACE")
+	if interfaceName == "" {
+		interfaceName = "eth1"
+	}
+	if networkInterface, err := net.InterfaceByName(interfaceName); err == nil {
+		if addresses, err := networkInterface.Addrs(); err == nil {
+			for _, address := range addresses {
+				var ip net.IP
+				switch value := address.(type) {
+				case *net.IPNet:
+					ip = value.IP
+				case *net.IPAddr:
+					ip = value.IP
+				}
+				if ip != nil && ip.To4() != nil && !ip.IsLoopback() {
+					return ip.To4()
+				}
+			}
+		}
+	}
+	if global.CONFIG != nil {
+		if ip := net.ParseIP(global.CONFIG.Stb.IP); ip != nil {
+			return ip.To4()
+		}
+	}
+	return nil
 }
 
 var tvodHTTPClient = iptvHTTPClient(15*time.Second, func(_ *http.Request, _ []*http.Request) error {
