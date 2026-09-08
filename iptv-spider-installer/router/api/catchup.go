@@ -26,11 +26,13 @@ import (
 )
 
 const (
-	catchupMaxDays     = 7
-	catchupMaxDuration = 8 * time.Hour
-	catchupMinTail     = 12 * time.Second
-	catchupUserAgent   = "IPTVSpiderCatchup/1.0"
-	tiviMateSourceURL  = "http://192.168.100.51:34400/m3u/xteve.m3u"
+	catchupMaxDays        = 7
+	catchupMaxDuration    = 8 * time.Hour
+	catchupMinTail        = 12 * time.Second
+	catchupSegmentRetries = 3
+	catchupRetryDelay     = 250 * time.Millisecond
+	catchupUserAgent      = "IPTVSpiderCatchup/1.0"
+	tiviMateSourceURL     = "http://192.168.100.51:34400/m3u/xteve.m3u"
 )
 
 var tvgIDPattern = regexp.MustCompile(`tvg-id="([^"]+)"`)
@@ -436,7 +438,16 @@ func relayHLSWithSource(ctx context.Context, source tvodPlaySource, writer io.Wr
 			return written, err
 		}
 		setHLSHeaders(request, source)
-		response, err := client.Do(request)
+		var response *http.Response
+		for retry := 0; ; retry++ {
+			response, err = client.Do(request)
+			if err == nil || retry >= catchupSegmentRetries {
+				break
+			}
+			if waitErr := waitCatchupRetry(ctx, retry); waitErr != nil {
+				return written, waitErr
+			}
+		}
 		if err != nil {
 			return written, err
 		}
@@ -490,7 +501,16 @@ func relayHLSWithSource(ctx context.Context, source tvodPlaySource, writer io.Wr
 				return written, err
 			}
 			setHLSHeaders(req, source)
-			resp, err := client.Do(req)
+			var resp *http.Response
+			for retry := 0; ; retry++ {
+				resp, err = client.Do(req)
+				if err == nil || retry >= catchupSegmentRetries {
+					break
+				}
+				if waitErr := waitCatchupRetry(ctx, retry); waitErr != nil {
+					return written, waitErr
+				}
+			}
 			if err != nil {
 				return written, err
 			}
@@ -520,6 +540,18 @@ func relayHLSWithSource(ctx context.Context, source tvodPlaySource, writer io.Wr
 		case <-time.After(1 * time.Second):
 		}
 		// Live-style playlists may advance; re-fetch the same signed URL.
+	}
+}
+
+func waitCatchupRetry(ctx context.Context, retry int) error {
+	delay := catchupRetryDelay * time.Duration(retry+1)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
