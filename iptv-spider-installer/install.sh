@@ -431,7 +431,16 @@ valid_ipv4() {
 }
 
 configure_iptv_interface() {
-  local answer interfaces_file=/etc/network/interfaces tmp backup
+  local answer interfaces_file=/etc/network/interfaces tmp backup existing_iptv_ip
+  existing_iptv_ip=$(ip -4 -o addr show dev eth1 scope global 2>/dev/null | awk '{split($4,a,"/"); print a[1]; exit}')
+  if valid_ipv4 "${existing_iptv_ip:-}" && [ "$existing_iptv_ip" != "$STB_IP" ]; then
+    echo "检测到前置程序已配置 eth1 地址：$existing_iptv_ip"
+    echo "抓包得到的机顶盒地址为 $STB_IP；回放和认证将使用 CT 自身地址 $existing_iptv_ip。"
+    STB_IP=$existing_iptv_ip
+    if [ -f "$APP_DIR/config.yaml" ]; then
+      sed -i "0,/^  ip: .*/s//  ip: '$STB_IP'/" "$APP_DIR/config.yaml"
+    fi
+  fi
   collect_routeros_iptv_ip
   echo
   echo 'IPTV 专网配置'
