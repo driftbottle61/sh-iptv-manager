@@ -179,6 +179,32 @@ show_routeros_iptv_commands() {
 EOF
 }
 
+configure_routeros_iptv_routes() {
+  local route_command result dst comment
+  if [ -z "${ROUTER_HOST:-}" ] || [ -z "${ROUTER_USER:-}" ] || [ -z "${STB_PLANE_B_GATEWAY:-}" ]; then
+    echo 'RouterOS 登录信息或 IPTV 网关不完整，跳过自动添加 RouterOS IPTV 路由。'
+    return 0
+  fi
+  if ! valid_ipv4 "$STB_PLANE_B_GATEWAY"; then
+    echo "机顶盒 IPTV 网关格式无效，跳过 RouterOS 路由配置：$STB_PLANE_B_GATEWAY"
+    return 0
+  fi
+  for dst in 218.83.0.0/16 222.68.0.0/16 124.75.0.0/16; do
+    case "$dst" in
+      218.83.0.0/16) comment='iptv-spider EPG via IPTV gateway' ;;
+      222.68.0.0/16) comment='iptv-spider auth via IPTV gateway' ;;
+      124.75.0.0/16) comment='iptv-spider auth CDN via IPTV gateway' ;;
+    esac
+    route_command=" :if ([:len [/ip route find comment=\"$comment\"]] = 0) do={ /ip route add dst-address=$dst gateway=${STB_PLANE_B_GATEWAY}%bridge_iptv comment=\"$comment\" } else={ /ip route set [/ip route find comment=\"$comment\"] gateway=${STB_PLANE_B_GATEWAY}%bridge_iptv }"
+    if ! result=$(routeros_ssh_command "$route_command" 2>&1); then
+      echo "RouterOS 路由配置失败（$dst）："
+      printf '%s\n' "$result" | sed -n '1,3p'
+      return 0
+    fi
+  done
+  echo 'RouterOS IPTV 路由检查完成：已有规则已保留，缺失规则已自动添加。'
+}
+
 collect_routeros_iptv_ip() {
   if [ -n "${ROUTER_HOST:-}" ] && [ -n "${ROUTER_USER:-}" ]; then
     local detected query_error route_gateway
@@ -442,6 +468,7 @@ configure_iptv_interface() {
     fi
   fi
   collect_routeros_iptv_ip
+  configure_routeros_iptv_routes
   echo
   echo 'IPTV 专网配置'
   echo "即将把抓到的专网地址 $STB_IP/16 配置到 eth1。"
