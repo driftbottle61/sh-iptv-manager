@@ -60,7 +60,7 @@ days=$(sed -n "/^catchup:/,/^[^ ]/s/^[[:space:]]*days:[[:space:]]*\([0-9][0-9]*\
 port=${port:-8888}
 days=${days:-7}
 base="http://127.0.0.1:$port"
-listen_addr=$(ss -lnt 2>/dev/null | awk -v suffix=":$port" 'index($4,suffix)==length($4)-length(suffix)+1 {print $4; exit}')
+listen_addr=$(ss -lnt 2>/dev/null | awk -v suffix=":$port" 'length($4)>=length(suffix) && index($4,suffix)==length($4)-length(suffix)+1 {print $4; exit}')
 
 echo 'IPTV Spider 运行状态'
 echo '------------------------------------------------------------'
@@ -81,6 +81,16 @@ echo 'HTTP 接口'
 http_check 'M3U' "$base/tv.m3u" "$tmp_dir/tv.m3u"
 http_check 'EPG' "$base/api/epg?daysAgo=$days" "$tmp_dir/epg.xml"
 http_check 'Logo' "$base/iptvlogos/CGTN.png" "$tmp_dir/logo.png"
+
+echo
+echo '播放器 / EPG 链接'
+if [ -n "$lan_ip" ]; then
+  echo "  TiviMate：http://$lan_ip:$port/tv.m3u"
+  echo "  IPTV#：http://$lan_ip:$port/iptvsharp.m3u"
+  echo "  EPG：http://$lan_ip:$port/api/epg?daysAgo=$days"
+else
+  echo '  未能从 config.yaml 解析 LAN 地址，无法给出链接。'
+fi
 
 xml_channels=$(grep -c '<channel ' "$tmp_dir/epg.xml" 2>/dev/null || true)
 xml_programmes=$(grep -c '<programme ' "$tmp_dir/epg.xml" 2>/dev/null || true)

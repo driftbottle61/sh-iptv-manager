@@ -101,11 +101,16 @@ sudo ./install.sh
 
 ```text
 http://<server>:<port>/tv.m3u
+http://<server>:<port>/iptvsharp.m3u
 http://<server>:<port>/api/epg?daysAgo=7
 http://<server>:<port>/iptvlogos/CGTN.png
 ```
 
-`tv.m3u` 使用配置的 udpxy/msd_lite 把 IPTV 多播转换为 HTTP 单播，并附加 TVOD 回看属性。Logo 与频道分组来自安装包中的离线参考映射，不依赖外部 Logo 主机。
+`tv.m3u` 为 TiviMate 播放列表、`iptvsharp.m3u` 为 IPTV# 播放列表，两者内容一致，
+仅在回看时间参数的写法上按客户端区分；均使用配置的 udpxy/msd_lite 把 IPTV 多播
+转换为 HTTP 单播，并附加 TVOD 回看属性。若实际 udpxy/msd_lite 地址不是内置默认
+`192.168.100.51:4022`，可在链接后追加 `?udpxy=<地址:端口>`。Logo 与频道分组来自
+安装包中的离线参考映射，不依赖外部 Logo 主机。
 
 ## 服务管理
 
@@ -240,3 +245,47 @@ journalctl -u iptv-routeros-sync.service -n 50 --no-pager
 ```
 
 自动同步不保存 RouterOS 明文密码，建议先配置仅允许 RouterOS 管理 SSH 登录的密钥。若安装时跳过密钥，仍可手工配置 `/etc/iptv-spider/routeros-sync.conf` 后启用该 timer。
+
+## DHCP-direct 一键安装（install-dhcp.sh + pve-iptv-dhcp-create.sh，v1.2.52+）
+
+面向"全新 Debian 12 CT 一键变成 IPTV Spider 节点"的自动安装路径，与上面
+install.sh 的"静态 B 面 IP + RouterOS 中转"架构不同，本路径让 CT 自己在
+VLAN85 专网上获取 DHCP 租约，网关与源 IP 全部随租约自动维护，不依赖
+RouterOS SNAT/静态路由（2026-09-08 已在测试 CT 上删机重建验证，含重启恢复）。
+
+两个脚本：
+
+- `install-dhcp.sh`：CT 内非交互引导（root 运行）。参数文件为 shell 格式
+  `KEY=value`（见 `install-dhcp.conf.example`）。完成：eth1 改 `inet dhcp`、
+  写入 dhclient hooks（拦默认路由/DNS 改写 + 按租约网关维护 IPTV 专网路由 +
+  `config.yaml` 的 `stb.ip` 变化自动重启服务）、可选 DUID 预置（配合 PVE
+  veth 固定 MAC 可续用原租约 IP）、安装应用发行包（本地目录或 GitHub
+  Release）、本机 MariaDB、生成 `config.yaml`、启动服务并验证认证/EPG 直连。
+- `pve-iptv-dhcp-create.sh`：PVE 编排（root 运行）。持久化 IPTV VLAN 桥
+  （写 `/etc/network/interfaces.d/50-iptv-vlanNN.conf`）、`pct create` 创建
+  全新 CT（eth0=管理网静态、eth1=IPTV 桥不带 `ip=`、固定 MAC）、注入 SSH
+  公钥、上传发行包与参数文件，最后在 CT 内执行 `install-dhcp.sh`。
+
+示例（PVE Shell）：
+
+```bash
+./pve-iptv-dhcp-create.sh \
+  --answers /root/install-dhcp.conf \
+  --vmid 114 --hostname iptv-spider \
+  --mgmt-ip 192.168.100.92 --mgmt-gw 192.168.100.1 \
+  --eth1-mac BC:24:11:87:B7:32 \
+  --pkg-dir /root/iptv-spider-installer \
+  --ssh-pubkey /root/.ssh/id_ed25519.pub \
+  --destroy-existing
+```
+
+要点：
+
+- 参数文件含 IPTV 账号凭据，建议 `chmod 600` 且不要提交 Git。
+- 想续用原租约 IP：`--eth1-mac` 与参数文件 `DHCP_DUID` 必须成对一致。
+- 全新 PVE：脚本写桥持久化后需重启 PVE（或手工 `ifreload -a`）才生效；
+  若桥尚不存在可加 `--apply-live` 立即补建运行态桥。
+- 现有容器替换：加 `--destroy-existing`（危险，会先停止并销毁同 vmid 容器）。
+- 专网直连要求 RouterOS 侧已有 VLAN85 二层路径（本仓库 `pve-iptv-prep.sh`
+  菜单 1 可生成对应 RouterOS 配置）；CT 直连后 RouterOS 无需为该 CT 添加
+  NAT/SNAT。
